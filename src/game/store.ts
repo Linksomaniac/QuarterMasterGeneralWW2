@@ -895,14 +895,15 @@ function processOffensiveResult(
     }
   }
 
-  // Handle Amphibious Landings (and similar) needing a redeploy to a fixed target space
+  // Handle BUILD_AFTER_BATTLE needing a redeploy to a fixed target space (0 reserves)
   if (result.needsRedeploy && result.targetBuildSpaceId) {
     const targetSpaceId = result.targetBuildSpaceId;
+    const pieceType = result.redeployPieceType ?? 'army';
     const isHuman = ns.countries[country].isHuman;
-    const redeployPA = getRedeployOption(country, 'army', ns);
+    const redeployPA = getRedeployOption(country, pieceType, ns);
     if (redeployPA) {
       if (isHuman) {
-        ns = addLogEntry(ns, country, `${card.name}: no reserve armies — pick one to redeploy to ${getSpace(targetSpaceId)?.name ?? targetSpaceId}`);
+        ns = addLogEntry(ns, country, `${card.name}: no reserve ${pieceType === 'navy' ? 'navies' : 'armies'} — pick one to redeploy to ${getSpace(targetSpaceId)?.name ?? targetSpaceId}`);
         set({
           ...ns,
           phase: GamePhase.PLAY_STEP,
@@ -914,9 +915,9 @@ function processOffensiveResult(
         });
         return;
       }
-      // AI: remove the first army (lowest priority) and place in target space
-      const armies = ns.countries[country].piecesOnBoard.filter((p) => p.type === 'army');
-      const remove = armies[0];
+      // AI: remove the first piece of the right type (lowest priority) and place in target space
+      const pieces = ns.countries[country].piecesOnBoard.filter((p) => p.type === pieceType);
+      const remove = pieces[0];
       if (remove) {
         const removedSpaceName = getSpace(remove.spaceId)?.name ?? remove.spaceId;
         ns = {
@@ -929,7 +930,7 @@ function processOffensiveResult(
             },
           },
         };
-        const newPiece: Piece = { id: generatePieceId(), country, type: 'army', spaceId: targetSpaceId };
+        const newPiece: Piece = { id: generatePieceId(), country, type: pieceType, spaceId: targetSpaceId };
         ns = {
           ...ns,
           countries: {
@@ -940,8 +941,8 @@ function processOffensiveResult(
             },
           },
         };
-        ns = addLogEntry(ns, country, `${card.name}: redeployed army from ${removedSpaceName} to ${getSpace(targetSpaceId)?.name ?? targetSpaceId}`);
-        chainTrigger = { type: 'build_army', spaceId: targetSpaceId, builtPieceId: newPiece.id };
+        ns = addLogEntry(ns, country, `${card.name}: redeployed ${pieceType} from ${removedSpaceName} to ${getSpace(targetSpaceId)?.name ?? targetSpaceId}`);
+        chainTrigger = { type: pieceType === 'navy' ? 'build_navy' : 'build_army', spaceId: targetSpaceId, builtPieceId: newPiece.id };
       }
     }
   }
