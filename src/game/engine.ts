@@ -2248,9 +2248,15 @@ export function findProtectionResponses(
 
         if (effect.pieceType && pieceType && effect.pieceType !== pieceType) continue;
 
+        // Adjacency expansion only applies to cards whose text explicitly says
+        // "in or adjacent to" (condition: 'adjacent_or_in'). Cards like Stalingrad,
+        // Moscow, Motherland etc. use exact-space matching only, so we must NOT
+        // expand to adjacent spaces — otherwise Stalingrad triggers for Moscow
+        // attacks because Moscow is adjacent to Ukraine.
         const spaceMatch = !effect.where ||
           effect.where.includes(battleSpaceId) ||
-          effect.where.some((w) => getAdjacentSpaces(w).includes(battleSpaceId));
+          (effect.condition === 'adjacent_or_in' &&
+            effect.where.some((w) => getAdjacentSpaces(w).includes(battleSpaceId)));
         if (!spaceMatch) continue;
 
         const teamMatch = !effect.team || effect.team === defenderTeam;

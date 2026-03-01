@@ -251,7 +251,7 @@ const UK_UNIQUE: Card[] = [
     [{ type: 'ELIMINATE_ARMY', team: Team.AXIS, where: ['india', 'australia', 'canada'] }]),
   makeCard('uk_raf', 'RAF', Country.UK, CardType.RESPONSE,
     'Use when your piece in or adjacent to the United Kingdom is about to be removed. Do not remove that piece this turn.',
-    [{ type: 'PROTECT_PIECE', where: ['united_kingdom'], duration: 'turn' }]),
+    [{ type: 'PROTECT_PIECE', where: ['united_kingdom'], duration: 'turn', condition: 'adjacent_or_in' }]),
   makeCard('uk_rationing', 'Rationing', Country.UK, CardType.RESPONSE,
     'Use during your play step after playing a card. Instead of placing that card in your discard pile, shuffle it into your draw deck.',
     [{ type: 'DISCARD_CARDS', count: -1, condition: 'return_played_card' }]),
