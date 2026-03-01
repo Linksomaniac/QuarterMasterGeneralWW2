@@ -1,0 +1,204 @@
+import React, { useState } from 'react';
+import {
+  Country,
+  COUNTRY_NAMES,
+  COUNTRY_COLORS,
+  getTeam,
+  Team,
+} from '../game/types';
+import { PlayerConfig, useGameStore } from '../game/store';
+
+const ALL_COUNTRIES: Country[] = [
+  Country.GERMANY,
+  Country.UK,
+  Country.JAPAN,
+  Country.SOVIET_UNION,
+  Country.ITALY,
+  Country.USA,
+];
+
+const PRESETS: Record<string, Record<Country, 'human' | 'ai'>> = {
+  '1 vs 5 AI': {
+    [Country.GERMANY]: 'human',
+    [Country.UK]: 'ai',
+    [Country.JAPAN]: 'ai',
+    [Country.SOVIET_UNION]: 'ai',
+    [Country.ITALY]: 'ai',
+    [Country.USA]: 'ai',
+  },
+  '2 Players': {
+    [Country.GERMANY]: 'human',
+    [Country.UK]: 'human',
+    [Country.JAPAN]: 'ai',
+    [Country.SOVIET_UNION]: 'ai',
+    [Country.ITALY]: 'ai',
+    [Country.USA]: 'ai',
+  },
+  '6 Players': {
+    [Country.GERMANY]: 'human',
+    [Country.UK]: 'human',
+    [Country.JAPAN]: 'human',
+    [Country.SOVIET_UNION]: 'human',
+    [Country.ITALY]: 'human',
+    [Country.USA]: 'human',
+  },
+  'All AI': {
+    [Country.GERMANY]: 'ai',
+    [Country.UK]: 'ai',
+    [Country.JAPAN]: 'ai',
+    [Country.SOVIET_UNION]: 'ai',
+    [Country.ITALY]: 'ai',
+    [Country.USA]: 'ai',
+  },
+};
+
+export default function SetupScreen() {
+  const initGame = useGameStore((s) => s.initGame);
+  const [configs, setConfigs] = useState<Record<Country, { isHuman: boolean; difficulty: 'easy' | 'medium' | 'hard' }>>(
+    Object.fromEntries(
+      ALL_COUNTRIES.map((c) => [c, { isHuman: c === Country.GERMANY, difficulty: 'hard' as const }])
+    ) as any
+  );
+
+  const applyPreset = (name: string) => {
+    const preset = PRESETS[name];
+    if (!preset) return;
+    setConfigs(
+      Object.fromEntries(
+        ALL_COUNTRIES.map((c) => [
+          c,
+          { isHuman: preset[c] === 'human', difficulty: configs[c].difficulty },
+        ])
+      ) as any
+    );
+  };
+
+  const startGame = () => {
+    const playerConfigs: PlayerConfig[] = ALL_COUNTRIES.map((c) => ({
+      country: c,
+      isHuman: configs[c].isHuman,
+      aiDifficulty: configs[c].difficulty,
+    }));
+    initGame(playerConfigs);
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center p-4" style={{ background: 'linear-gradient(135deg, #0a1628 0%, #1a2332 50%, #0d1b2a 100%)' }}>
+      <div className="w-full max-w-4xl">
+        <div className="text-center mb-10">
+          <h1 className="font-display text-5xl font-bold text-board-supply tracking-wider mb-2">
+            Quartermaster General
+          </h1>
+          <h2 className="font-display text-2xl text-gray-400 tracking-widest uppercase">
+            World War II
+          </h2>
+          <div className="mt-4 h-0.5 w-48 mx-auto bg-gradient-to-r from-transparent via-board-supply to-transparent" />
+        </div>
+
+        <div className="flex gap-2 justify-center mb-8">
+          {Object.keys(PRESETS).map((name) => (
+            <button
+              key={name}
+              onClick={() => applyPreset(name)}
+              className="px-4 py-2 rounded text-sm font-medium bg-gray-800 hover:bg-gray-700 text-gray-300 transition-colors border border-gray-700"
+            >
+              {name}
+            </button>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-2 gap-4 mb-8">
+          {ALL_COUNTRIES.map((country) => {
+            const team = getTeam(country);
+            const borderColor = team === Team.AXIS ? 'border-red-900/50' : 'border-blue-900/50';
+            const teamBg = team === Team.AXIS ? 'bg-red-950/20' : 'bg-blue-950/20';
+            return (
+              <div
+                key={country}
+                className={`rounded-lg border ${borderColor} ${teamBg} p-4 transition-all`}
+              >
+                <div className="flex items-center gap-3 mb-3">
+                  <div
+                    className="w-4 h-4 rounded-full shadow-lg"
+                    style={{ backgroundColor: COUNTRY_COLORS[country] }}
+                  />
+                  <h3 className="font-display text-lg font-bold" style={{ color: COUNTRY_COLORS[country] }}>
+                    {COUNTRY_NAMES[country]}
+                  </h3>
+                  <span className={`text-xs px-2 py-0.5 rounded ${team === Team.AXIS ? 'bg-red-900/50 text-red-300' : 'bg-blue-900/50 text-blue-300'}`}>
+                    {team}
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-4">
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() =>
+                        setConfigs((prev) => ({
+                          ...prev,
+                          [country]: { ...prev[country], isHuman: true },
+                        }))
+                      }
+                      className={`px-3 py-1.5 rounded text-sm font-medium transition-all ${
+                        configs[country].isHuman
+                          ? 'bg-board-supply text-gray-900 shadow-lg'
+                          : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                      }`}
+                    >
+                      Human
+                    </button>
+                    <button
+                      onClick={() =>
+                        setConfigs((prev) => ({
+                          ...prev,
+                          [country]: { ...prev[country], isHuman: false },
+                        }))
+                      }
+                      className={`px-3 py-1.5 rounded text-sm font-medium transition-all ${
+                        !configs[country].isHuman
+                          ? 'bg-board-supply text-gray-900 shadow-lg'
+                          : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                      }`}
+                    >
+                      AI
+                    </button>
+                  </div>
+
+                  {!configs[country].isHuman && (
+                    <select
+                      value={configs[country].difficulty}
+                      onChange={(e) =>
+                        setConfigs((prev) => ({
+                          ...prev,
+                          [country]: { ...prev[country], difficulty: e.target.value as any },
+                        }))
+                      }
+                      className="bg-gray-800 text-gray-300 text-sm rounded px-2 py-1.5 border border-gray-700"
+                    >
+                      <option value="easy">Easy</option>
+                      <option value="medium">Medium</option>
+                      <option value="hard">Hard</option>
+                    </select>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="text-center">
+          <button
+            onClick={startGame}
+            className="px-12 py-4 rounded-lg font-display text-xl font-bold bg-gradient-to-r from-board-supply to-yellow-600 text-gray-900 hover:from-yellow-500 hover:to-yellow-700 transition-all shadow-xl hover:shadow-2xl transform hover:scale-105"
+          >
+            Start Game
+          </button>
+        </div>
+
+        <div className="mt-8 text-center text-gray-600 text-xs">
+          <p>Based on the board game by Ian Brody &bull; Griggling Games</p>
+        </div>
+      </div>
+    </div>
+  );
+}
