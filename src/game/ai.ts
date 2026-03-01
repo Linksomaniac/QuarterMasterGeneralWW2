@@ -721,7 +721,14 @@ function scoreCard(
       return score + countryBonus;
     }
     case CardType.LAND_BATTLE: {
-      const targets = getValidBattleTargets(country, 'land', state);
+      // Filter to only spaces that actually have an enemy army — getValidBattleTargets
+      // may include empty adjacent spaces when status cards like Blitzkrieg are active.
+      const allLandTargets = getValidBattleTargets(country, 'land', state);
+      const landEnemyTeam = getEnemyTeam(country);
+      const landAllPieces = getAllPieces(state);
+      const targets = allLandTargets.filter((t) =>
+        landAllPieces.some((p) => p.spaceId === t && p.type === 'army' && getTeam(p.country) === landEnemyTeam)
+      );
       if (targets.length === 0) return -3;
       let score = 8 + Math.max(...targets.map((t) => scoreSpace(t, country, state)));
       if (isHard) score -= getResponsePenaltyForTargets(targets, country, state);
@@ -729,7 +736,13 @@ function scoreCard(
       return score + countryBonus;
     }
     case CardType.SEA_BATTLE: {
-      const targets = getValidBattleTargets(country, 'sea', state);
+      // Filter to only spaces that actually have an enemy navy.
+      const allSeaTargets = getValidBattleTargets(country, 'sea', state);
+      const seaEnemyTeam = getEnemyTeam(country);
+      const seaAllPieces = getAllPieces(state);
+      const targets = allSeaTargets.filter((t) =>
+        seaAllPieces.some((p) => p.spaceId === t && p.type === 'navy' && getTeam(p.country) === seaEnemyTeam)
+      );
       if (targets.length === 0) return -3;
       let score = 7 + targets.length;
       if (isHard) score -= getResponsePenaltyForTargets(targets, country, state);
@@ -929,6 +942,12 @@ export function pickBestBattleTarget(
     const enemyPiecesHere = allPieces.filter(
       (p) => p.spaceId === spaceId && getTeam(p.country) === enemyTeam
     );
+
+    // Never pick a space with no enemy — battling an empty space wastes the card.
+    // getValidBattleTargets() may include empty spaces when status cards like
+    // Blitzkrieg are active (to support chain-build mechanics), but the actual
+    // battle resolution always skips spaces without enemy pieces.
+    if (enemyPiecesHere.length === 0) continue;
 
     for (const piece of enemyPiecesHere) {
       if (piece.spaceId === HOME_SPACES[piece.country]) score += 20;
@@ -1276,8 +1295,12 @@ export function aiChooseEventEffect(
         break;
       }
       case 'LAND_BATTLE': {
-        const targets = getValidBattleTargets(country, 'land', state);
-        score = 8 + Math.max(0, ...targets.map((t) => scoreSpace(t, country, state)));
+        const statusEffectEnemyTeam = getEnemyTeam(country);
+        const statusEffectAllPieces = getAllPieces(state);
+        const targets = getValidBattleTargets(country, 'land', state).filter((t) =>
+          statusEffectAllPieces.some((p) => p.spaceId === t && p.type === 'army' && getTeam(p.country) === statusEffectEnemyTeam)
+        );
+        score = targets.length === 0 ? -3 : 8 + Math.max(0, ...targets.map((t) => scoreSpace(t, country, state)));
         if (difficulty === 'hard') {
           score -= getResponsePenaltyForTargets(targets, country, state);
         }
@@ -1285,8 +1308,12 @@ export function aiChooseEventEffect(
         break;
       }
       case 'SEA_BATTLE': {
-        const targets = getValidBattleTargets(country, 'sea', state);
-        score = 7 + targets.length;
+        const statusEffectSeaEnemyTeam = getEnemyTeam(country);
+        const statusEffectSeaAllPieces = getAllPieces(state);
+        const targets = getValidBattleTargets(country, 'sea', state).filter((t) =>
+          statusEffectSeaAllPieces.some((p) => p.spaceId === t && p.type === 'navy' && getTeam(p.country) === statusEffectSeaEnemyTeam)
+        );
+        score = targets.length === 0 ? -3 : 7 + targets.length;
         if (difficulty === 'hard') {
           score -= getResponsePenaltyForTargets(targets, country, state);
         }
