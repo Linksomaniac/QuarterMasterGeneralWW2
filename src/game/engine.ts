@@ -1543,6 +1543,12 @@ export function getCardPlayWarning(card: Card, state: GameState): string | null 
     case CardType.ECONOMIC_WARFARE: {
       const targets = getEWValidTargets(card, country, state);
       if (targets.length === 0) return 'Prerequisite not met — card will have no effect';
+      // Warn if a scaling card would produce zero effect (e.g. no German armies in position)
+      const discardEff = card.effects.find((e) => e.type === 'DISCARD_CARDS');
+      if (discardEff?.scalingCondition) {
+        const scale = evaluateEWScaling(discardEff.scalingCondition, state);
+        if (scale === 0) return 'No pieces in position — card will have no effect';
+      }
       return null;
     }
     case CardType.EVENT: {
@@ -2000,15 +2006,13 @@ export function resolveEWAction(
   }
 
   let ewReduction = 0;
-  const targetTeam = getTeam(targetCountry);
-  const defenderCountries = getTeamCountries(targetTeam);
-  for (const dc of defenderCountries) {
-    const dcs = state.countries[dc];
-    for (const sc of [...dcs.statusCards, ...dcs.responseCards]) {
-      for (const eff of sc.effects) {
-        if (eff.type === 'DISCARD_CARDS' && eff.condition === 'reduce_ew_discard' && eff.count) {
-          ewReduction += eff.count;
-        }
+  // Only the targeted country's OWN status/response cards can reduce EW directed at them.
+  // Card text says "When YOU are the target" — does not protect teammates.
+  // e.g. Italy's Skilled Pilots only reduces EW when Italy is targeted, not Germany or Japan.
+  for (const sc of [...targetCs.statusCards, ...targetCs.responseCards]) {
+    for (const eff of sc.effects) {
+      if (eff.type === 'DISCARD_CARDS' && eff.condition === 'reduce_ew_discard' && eff.count) {
+        ewReduction += eff.count;
       }
     }
   }
