@@ -165,6 +165,7 @@ interface GameStoreActions {
   selectEventChoice: (effectType: string) => void;
   resolveReorderCards: (orderedCardIds: string[]) => void;
   resolveRosieSelection: (cardIds: string[]) => void;
+  skipPlayStep: () => void;
   skipRemainingRecruits: () => void;
   skipEventEffect: () => void;
   resolveMaltaChoice: (choice: 'eliminate_navy' | 'discard_cards') => void;
@@ -2342,12 +2343,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
       const alt = altActions[0];
       const { newState, pendingAction: altPA } = executeStatusAlternativeAction(alt.card, country, s);
       let logged = addLogEntry(newState, country, `Used ${alt.card.name}`);
-      const enigmaRes2 = checkAndResolveEnigma(country, alt.card.id, alt.card.name, logged);
-      logged = enigmaRes2.newState;
-      if (enigmaRes2.enigmaPending) {
-        set({ ...logged, pendingAction: enigmaRes2.enigmaPending });
-        return;
-      }
+
+      // Resolve altPA for the AI *before* checking Enigma so that:
+      // (a) the build/battle is never lost if Enigma fires, and
+      // (b) Enigma always fires after the action is already complete.
       if (altPA) {
         if (altPA.type === 'SELECT_HAND_DISCARD') {
           const hand = logged.countries[country].hand;
@@ -2365,45 +2364,52 @@ export const useGameStore = create<GameStore>((set, get) => ({
               } else if (nextPA.type === 'SELECT_BATTLE_TARGET') {
                 ns3 = resolveBattleAction(res2, country, ns3);
               }
-              set({ ...ns3, pendingAction: null, phase: GamePhase.SUPPLY_STEP, actionContext: undefined });
-              await delay(AI_DELAY / 2);
-              get().advanceToNextPhase();
-              return;
+              logged = ns3;
+            } else {
+              logged = ns2;
             }
+          } else {
+            logged = ns2;
           }
-          set({ ...ns2, pendingAction: null, phase: GamePhase.SUPPLY_STEP, actionContext: undefined });
-          await delay(AI_DELAY / 2);
-          get().advanceToNextPhase();
-          return;
-        }
-        const res = aiResolvePendingAction(logged, altPA, diff);
-        if (typeof res === 'string' && res) {
-          let ns = logged;
-          if (altPA.type === 'SELECT_PIECE_TO_REDEPLOY') {
-            const rdCtry = altPA.redeployCountry;
-            const rmPiece = ns.countries[rdCtry].piecesOnBoard.find((p) => p.id === res);
-            if (rmPiece) {
-              ns = { ...ns, countries: { ...ns.countries, [rdCtry]: { ...ns.countries[rdCtry], piecesOnBoard: ns.countries[rdCtry].piecesOnBoard.filter((p) => p.id !== res) } } };
-              ns = addLogEntry(ns, rdCtry, `Removed ${altPA.pieceType} from ${getSpace(rmPiece.spaceId)?.name ?? rmPiece.spaceId} for redeployment`);
-              const validSpaces = getValidBuildLocations(rdCtry, altPA.pieceType, ns);
-              if (validSpaces.length > 0) {
-                const buildLoc = pickBestBuildLocation(validSpaces, rdCtry, ns, diff);
-                ns = resolveBuildAction(buildLoc, altPA.pieceType, rdCtry, ns);
-                ns = addLogEntry(ns, rdCtry, `Built ${altPA.pieceType} in ${buildLoc.replace(/_/g, ' ')}`);
+        } else {
+          const res = aiResolvePendingAction(logged, altPA, diff);
+          if (typeof res === 'string' && res) {
+            let ns = logged;
+            if (altPA.type === 'SELECT_PIECE_TO_REDEPLOY') {
+              const rdCtry = altPA.redeployCountry;
+              const rmPiece = ns.countries[rdCtry].piecesOnBoard.find((p) => p.id === res);
+              if (rmPiece) {
+                ns = { ...ns, countries: { ...ns.countries, [rdCtry]: { ...ns.countries[rdCtry], piecesOnBoard: ns.countries[rdCtry].piecesOnBoard.filter((p) => p.id !== res) } } };
+                ns = addLogEntry(ns, rdCtry, `Removed ${altPA.pieceType} from ${getSpace(rmPiece.spaceId)?.name ?? rmPiece.spaceId} for redeployment`);
+                const validSpaces = getValidBuildLocations(rdCtry, altPA.pieceType, ns);
+                if (validSpaces.length > 0) {
+                  const buildLoc = pickBestBuildLocation(validSpaces, rdCtry, ns, diff);
+                  ns = resolveBuildAction(buildLoc, altPA.pieceType, rdCtry, ns);
+                  ns = addLogEntry(ns, rdCtry, `Built ${altPA.pieceType} in ${buildLoc.replace(/_/g, ' ')}`);
+                }
               }
+            } else if (altPA.type === 'SELECT_BUILD_LOCATION') {
+              ns = resolveBuildAction(res, altPA.pieceType, country, ns);
+              ns = addLogEntry(ns, country, `Built ${altPA.pieceType} in ${res.replace(/_/g, ' ')}`);
+            } else if (altPA.type === 'SELECT_BATTLE_TARGET') {
+              ns = resolveBattleAction(res, country, ns);
             }
-          } else if (altPA.type === 'SELECT_BUILD_LOCATION') {
-            ns = resolveBuildAction(res, altPA.pieceType, country, ns);
-            ns = addLogEntry(ns, country, `Built ${altPA.pieceType} in ${res.replace(/_/g, ' ')}`);
-          } else if (altPA.type === 'SELECT_BATTLE_TARGET') {
-            ns = resolveBattleAction(res, country, ns);
+            logged = ns;
           }
-          set({ ...ns, pendingAction: null, phase: GamePhase.SUPPLY_STEP, actionContext: undefined });
-          await delay(AI_DELAY / 2);
-          get().advanceToNextPhase();
-          return;
         }
       }
+
+      // Now check Enigma. If it fires for a human UK player we must set
+      // AWAITING_RESPONSE so the prompt actually renders (ResponsePrompt gates
+      // on that phase). altPA has already been resolved above, so no action is
+      // lost regardless of the UK player's Enigma decision.
+      const enigmaRes2 = checkAndResolveEnigma(country, alt.card.id, alt.card.name, logged);
+      logged = enigmaRes2.newState;
+      if (enigmaRes2.enigmaPending) {
+        set({ ...logged, pendingAction: enigmaRes2.enigmaPending, phase: GamePhase.AWAITING_RESPONSE });
+        return;
+      }
+
       set({ ...logged, pendingAction: null, phase: GamePhase.SUPPLY_STEP, actionContext: undefined });
       await delay(AI_DELAY / 2);
       get().advanceToNextPhase();
@@ -3680,6 +3686,17 @@ export const useGameStore = create<GameStore>((set, get) => ({
       const next = getCurrentCountry(gs(store));
       if (!store.countries[next].isHuman) store.runFullAiTurn();
     }, 300);
+  },
+
+  skipPlayStep: () => {
+    const s = gs(get());
+    const country = getCurrentCountry(s);
+    const cs = s.countries[country];
+    // Only valid for the active human player during the play step with nothing pending
+    if (!cs.isHuman || s.phase !== GamePhase.PLAY_STEP || s.pendingAction) return;
+    const reason = cs.hand.length === 0 ? 'No cards to play' : 'Passed play step';
+    const ns = addLogEntry(s, country, reason);
+    goToSupplyStep(ns, set, get);
   },
 
   skipRemainingRecruits: () => {

@@ -1450,6 +1450,7 @@ export default function CardHand() {
   const confirmDiscardStep = useGameStore((s) => s.confirmDiscardStep);
   const toggleCardForDiscard = useGameStore((s) => s.toggleCardForDiscard);
   const useAlternativeAction = useGameStore((s) => s.useAlternativeAction);
+  const skipPlayStep = useGameStore((s) => s.skipPlayStep);
 
   if (state.phase === GamePhase.SETUP_DISCARD) {
     return <SetupDiscardPanel />;
@@ -1587,6 +1588,13 @@ export default function CardHand() {
                 </>
               );
             })()}
+            <button
+              onClick={skipPlayStep}
+              className="px-3 py-1.5 rounded bg-gray-700/70 text-gray-300 text-[11px] font-bold hover:bg-gray-600 transition-colors border border-gray-600/40"
+              title="Skip your play step without playing a card"
+            >
+              {hand.length === 0 ? 'No Cards (Pass)' : 'Pass Turn'}
+            </button>
           </div>
         )}
 

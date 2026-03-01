@@ -166,8 +166,30 @@ function isWithinNSpaces(fromId: string, toId: string, n: number): boolean {
 export function isInSupply(piece: Piece, state: GameState): boolean {
   const country = piece.country;
   const team = getTeam(country);
-  const supplySpaces = getSupplySpacesForCountry(country, state.supplyMarkers);
   const allPieces = getAllPieces(state);
+
+  // Navies in sea spaces are in supply if adjacent to any land space containing
+  // an allied army. No BFS piece-chain back to a supply space is required —
+  // the adjacent army acts as the supply anchor. This matches QMG rules and
+  // fixes the bug where a navy built adjacent to a friendly army (e.g. Sea of
+  // Japan next to Philippines) was incorrectly eliminated because the BFS
+  // couldn't reach the sea space through piece chains.
+  if (piece.type === 'navy') {
+    const space = getSpace(piece.spaceId);
+    if (space?.type === 'SEA') {
+      return getAdjacentSpaces(piece.spaceId).some((adjId) => {
+        const adjSpace = getSpace(adjId);
+        if (adjSpace?.type !== 'LAND') return false;
+        return allPieces.some(
+          (p) => p.spaceId === adjId && p.type === 'army' && getTeam(p.country) === team
+        );
+      });
+    }
+    // Navy on a non-sea space (rare): fall through to army BFS check
+  }
+
+  // Armies (and non-sea navies): BFS from supply origins through piece chains.
+  const supplySpaces = getSupplySpacesForCountry(country, state.supplyMarkers);
   const straitStatuses = getStraitStatus(allPieces.map((p) => ({ country: p.country, spaceId: p.spaceId })));
   const isAxisTeam = team === Team.AXIS;
 
@@ -207,22 +229,7 @@ export function isInSupply(piece: Piece, state: GameState): boolean {
     }
   }
 
-  if (!reached.has(piece.spaceId)) return false;
-
-  if (piece.type === 'navy') {
-    const space = getSpace(piece.spaceId);
-    if (space?.type !== 'SEA') return true;
-    const adjacentLandWithAllyArmy = getAdjacentSpaces(piece.spaceId).some((adjId) => {
-      const adjSpace = getSpace(adjId);
-      if (adjSpace?.type !== 'LAND') return false;
-      return allPieces.some(
-        (p) => p.spaceId === adjId && p.type === 'army' && getTeam(p.country) === team
-      );
-    });
-    return adjacentLandWithAllyArmy;
-  }
-
-  return true;
+  return reached.has(piece.spaceId);
 }
 
 // ---------------------------------------------------------------------------
