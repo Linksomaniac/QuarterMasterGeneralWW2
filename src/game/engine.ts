@@ -882,9 +882,16 @@ function executeEventCard(card: Card, country: Country, state: GameState): GameS
           if (avail.navies <= 0) return s;
           const valid = getValidBuildLocations(uk, 'navy', s);
           if (valid.length === 0) return s;
-          const piece: Piece = { id: generatePieceId(), country: uk, type: 'navy', spaceId: valid[0] };
+          // Score each location by adjacent friendly pieces (more = better tactical position)
+          const friendlySpaceIds = new Set(s.countries[uk].piecesOnBoard.map((p) => p.spaceId));
+          const best = valid.reduce((a, b) => {
+            const scoreA = getAdjacentSpaces(a).filter((adj) => friendlySpaceIds.has(adj)).length;
+            const scoreB = getAdjacentSpaces(b).filter((adj) => friendlySpaceIds.has(adj)).length;
+            return scoreB > scoreA ? b : a;
+          });
+          const piece: Piece = { id: generatePieceId(), country: uk, type: 'navy', spaceId: best };
           let r = { ...s, countries: { ...s.countries, [uk]: { ...s.countries[uk], piecesOnBoard: [...s.countries[uk].piecesOnBoard, piece] } } };
-          r = addLogEntry(r, country, `${card.name}: UK built navy in ${getSpace(valid[0])?.name ?? valid[0]}`);
+          r = addLogEntry(r, country, `${card.name}: UK built navy in ${getSpace(best)?.name ?? best}`);
           return r;
         };
 
@@ -2574,7 +2581,7 @@ export function resolveOffensiveResponse(
   triggerSpaceId: string,
   country: Country,
   state: GameState
-): { newState: GameState; message: string; chainTrigger?: ChainTrigger; pendingElimination?: PendingElimination; validBattleTargets?: string[]; validBuildSpaces?: string[]; buildPieceType?: 'army' | 'navy'; buildCount?: number; needsRedeploy?: boolean; targetBuildSpaceId?: string; redeployPieceType?: 'army' | 'navy' } {
+): { newState: GameState; message: string; chainTrigger?: ChainTrigger; pendingElimination?: PendingElimination; validBattleTargets?: string[]; validBuildSpaces?: string[]; buildPieceType?: 'army' | 'navy'; buildCount?: number; buildAnywhere?: boolean; needsRedeploy?: boolean; targetBuildSpaceId?: string; redeployPieceType?: 'army' | 'navy' } {
   const isStatusCard = card.type === CardType.STATUS;
   let ns = isStatusCard ? state : activateProtectionResponse(country, card.id, state);
 
@@ -2866,10 +2873,18 @@ export function resolveOffensiveResponse(
       const filtered = battleTargets.filter((t) =>
         spaceMatchesWhere(t, whereSpaces) || whereSpaces.some((w) => getAdjacentSpaces(w).includes(t))
       );
-      if (filtered.length > 0) {
+      if (filtered.length > 1) {
+        // Multiple targets: let processOffensiveResult handle human choice or AI scoring
+        return { newState: ns, message: `${card.name}: choose a land space to battle`, validBattleTargets: filtered };
+      }
+      if (filtered.length === 1) {
         const target = filtered[0];
-        const targetPieces = getAllPieces(ns).filter((p) => p.spaceId === target && getTeam(p.country) === enemyTeam);
+        // Filter by army type since this is a land battle (enemy pieces here should all be armies)
+        const targetPieces = getAllPieces(ns).filter(
+          (p) => p.spaceId === target && getTeam(p.country) === enemyTeam && p.type === 'army'
+        );
         if (targetPieces.length > 0) {
+          // Pick the army with the highest own-country score (most valuable to eliminate)
           const elim = targetPieces[0];
           return {
             newState: ns,
@@ -3684,7 +3699,7 @@ export function resolveStatusFreeAction(
   card: Card,
   country: Country,
   state: GameState
-): { newState: GameState; message: string } {
+): { newState: GameState; message: string; validBattleTargets?: string[] } {
   let ns = state;
 
   const deck = ns.countries[country].deck;
@@ -3738,6 +3753,11 @@ export function resolveStatusFreeAction(
         spaceMatchesWhere(t, effect.where!)
       );
       if (targets.length === 0) return { newState: ns, message: `${card.name}: no valid targets` };
+      if (targets.length > 1) {
+        // Multiple targets: let caller (store.ts) handle human choice or AI scoring
+        return { newState: ns, message: `${card.name}: choose a land space to battle`, validBattleTargets: targets };
+      }
+      // Single target: auto-execute
       const target = targets[0];
       ns = resolveBattleAction(target, country, ns);
       return { newState: ns, message: `${card.name}: battled in ${getSpace(target)?.name ?? target}` };
@@ -4578,7 +4598,7 @@ export function resolveRosieAI(state: GameState): GameState {
         keepScore = hasNavyOnBoard ? 10 : 3;
         break;
       case CardType.ECONOMIC_WARFARE:
-        keepScore = state.turn >= 6 ? 8 : 4;
+        keepScore = state.round >= 6 ? 8 : 4;
         break;
       default:
         keepScore = 5;

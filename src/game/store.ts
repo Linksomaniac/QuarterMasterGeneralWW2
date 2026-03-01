@@ -908,7 +908,7 @@ function processOffensiveResult(
         set({
           ...ns,
           phase: GamePhase.PLAY_STEP,
-          pendingAction: { ...redeployPA, targetSpaceId },
+          pendingAction: { ...redeployPA, targetSpaceId } as PendingAction,
           actionContext: {
             ...(get().actionContext ?? { type: 'build', country, spaceId: '', declinedCardIds: [], usedOffensiveIds: [], usedStatusAbilityIds: [] }),
             usedOffensiveIds: usedIds,
@@ -981,9 +981,12 @@ function processOffensiveResult(
       const hasPcs = pieceType === 'navy' ? av.navies > 0 : av.armies > 0;
       if (!hasPcs) break;
       const freshLocs = new Set(getValidBuildLocations(country, pieceType, ns));
-      const freshAdj = getAdjacentSpaces(triggerSpaceId).filter((a) => freshLocs.has(a));
-      if (freshAdj.length === 0) break;
-      const pick = pickBestBuildLocation(freshAdj, country, ns, diff);
+      // buildAnywhere: pick from ALL valid locations (not just adjacent to trigger), e.g. RECRUIT_UK navy
+      const candidateSpaces = result.buildAnywhere
+        ? [...freshLocs]
+        : getAdjacentSpaces(triggerSpaceId).filter((a) => freshLocs.has(a));
+      if (candidateSpaces.length === 0) break;
+      const pick = pickBestBuildLocation(candidateSpaces, country, ns, diff);
       if (!pick) break;
       ns = resolveBuildAction(pick, pieceType, country, ns);
       ns = addLogEntry(ns, country, `${card.name}: built ${pieceType} in ${getSpace(pick)?.name ?? pick}`);
@@ -3165,6 +3168,17 @@ export const useGameStore = create<GameStore>((set, get) => ({
           const result = resolveStatusFreeAction(card, country, ns);
           ns = result.newState;
           ns = addLogEntry(ns, country, result.message);
+
+          if (result.validBattleTargets && result.validBattleTargets.length > 0) {
+            // Multiple battle targets returned (e.g. LAND_BATTLE with where on a status card).
+            // NOTE: No current STATUS card triggers this path. When one does, full human-interactive
+            // choice (SELECT_BATTLE_TARGET + resume status-ability flow) should be added here.
+            // For now, always use AI scoring to pick the best target (works for both AI and human).
+            const diff = ns.countries[country].aiDifficulty;
+            const target = pickBestBattleTarget(result.validBattleTargets, country, ns, diff);
+            ns = resolveBattleAction(target, country, ns);
+            ns = addLogEntry(ns, country, `${card.name}: battled in ${getSpace(target)?.name ?? target}`);
+          }
 
           const enigmaRes3 = checkAndResolveEnigma(country, pa.statusCardId, card.name, ns);
           ns = enigmaRes3.newState;
