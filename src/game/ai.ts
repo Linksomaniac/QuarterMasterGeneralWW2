@@ -771,6 +771,29 @@ function scoreCard(
   }
 }
 
+// ---------------------------------------------------------------------------
+// pickWorstPieceToRemove — returns the pieceId of the least-valuable piece
+// (lowest scoreSpace) from a list of on-board pieces. Used when a country
+// must redeploy and needs to decide which piece to sacrifice.
+// ---------------------------------------------------------------------------
+export function pickWorstPieceToRemove(
+  pieces: { pieceId: string; spaceId: string }[],
+  country: Country,
+  state: GameState
+): string {
+  if (pieces.length === 0) return '';
+  let worstId = pieces[0].pieceId;
+  let worstScore = Infinity;
+  for (const p of pieces) {
+    const s = scoreSpace(p.spaceId, country, state);
+    if (s < worstScore) {
+      worstScore = s;
+      worstId = p.pieceId;
+    }
+  }
+  return worstId;
+}
+
 export function pickBestBuildLocation(
   validSpaces: string[],
   country: Country,

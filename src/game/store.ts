@@ -110,6 +110,7 @@ import {
   aiPickEWTarget,
   pickBestBattleTarget,
   pickBestBuildLocation,
+  pickWorstPieceToRemove,
   aiChooseEventEffect,
   aiShouldTriggerDefenseOfMotherland,
 } from './ai';
@@ -915,9 +916,10 @@ function processOffensiveResult(
         });
         return;
       }
-      // AI: remove the first piece of the right type (lowest priority) and place in target space
+      // AI: remove the least-valuable piece (lowest scoreSpace) and place in target space
       const pieces = ns.countries[country].piecesOnBoard.filter((p) => p.type === pieceType);
-      const remove = pieces[0];
+      const worstId = pickWorstPieceToRemove(pieces.map((p) => ({ pieceId: p.id, spaceId: p.spaceId })), country, ns);
+      const remove = pieces.find((p) => p.id === worstId);
       if (remove) {
         const removedSpaceName = getSpace(remove.spaceId)?.name ?? remove.spaceId;
         ns = {
