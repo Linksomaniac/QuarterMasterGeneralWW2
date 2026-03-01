@@ -1613,7 +1613,10 @@ function continueAfterElimination(
     return;
   }
   const battleType = ctx.battleType === 'sea' ? 'battle_sea' as const : 'battle_land' as const;
-  if (tryOfferOffensiveResponse(battleType, battleSpaceId, ctx.country, ns, set, get)) return;
+  // Pass ctx.usedOffensiveIds so cards that already fired this turn (e.g. Bias for
+  // Action) are excluded.  Without this, Blitzkrieg could re-trigger Bias and vice-
+  // versa, creating an infinite loop.
+  if (tryOfferOffensiveResponse(battleType, battleSpaceId, ctx.country, ns, set, get, ctx.usedOffensiveIds)) return;
   if (proceedAfterAction(ns, set, get)) return;
   goToSupplyStep(ns, set, get);
 }
@@ -2025,7 +2028,13 @@ export const useGameStore = create<GameStore>((set, get) => ({
           country,
           spaceId,
           battleType: pa.battleType,
-          declinedCardIds: [], usedOffensiveIds: [], usedStatusAbilityIds: [],
+          // Carry over usedOffensiveIds/usedStatusAbilityIds from any in-progress
+          // chain (e.g. Bias for Action fired → human picks battle target here).
+          // Resetting them to [] would let Bias re-fire after Blitzkrieg builds,
+          // creating an infinite Bias ↔ Blitzkrieg loop.
+          declinedCardIds: [],
+          usedOffensiveIds: prevBattleCtx?.usedOffensiveIds ?? [],
+          usedStatusAbilityIds: prevBattleCtx?.usedStatusAbilityIds ?? [],
           playedCard: prevBattleCtx?.playedCard,
         },
       });
@@ -2937,7 +2946,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
           resumeChain(ns, set, get);
         } else {
           const battleType = getSpace(pa.battleSpaceId)?.type === 'SEA' ? 'battle_sea' as const : 'battle_land' as const;
-          if (tryOfferOffensiveResponse(battleType, pa.battleSpaceId, pa.attackingCountry, ns, set, get)) return;
+          if (tryOfferOffensiveResponse(battleType, pa.battleSpaceId, pa.attackingCountry, ns, set, get, ctx?.usedOffensiveIds)) return;
           if (proceedAfterAction(ns, set, get)) return;
           goToSupplyStep(ns, set, get);
         }
@@ -3154,7 +3163,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       const ctx = get().actionContext;
       if (ctx) {
         const battleType = ctx.battleType === 'sea' ? 'battle_sea' as const : 'battle_land' as const;
-        if (tryOfferOffensiveResponse(battleType, pa.recruitSpaceId, ctx.country, ns, set, get)) return;
+        if (tryOfferOffensiveResponse(battleType, pa.recruitSpaceId, ctx.country, ns, set, get, ctx.usedOffensiveIds)) return;
       }
       if (proceedAfterAction(ns, set, get)) return;
       goToSupplyStep(ns, set, get);
@@ -3284,7 +3293,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
         } else {
           if (!ctx) { goToSupplyStep(ns, set, get); return; }
           const battleType = ctx.battleType === 'sea' ? 'battle_sea' as const : 'battle_land' as const;
-          if (tryOfferOffensiveResponse(battleType, pa.battleSpaceId, ctx.country, ns, set, get)) return;
+          if (tryOfferOffensiveResponse(battleType, pa.battleSpaceId, ctx.country, ns, set, get, ctx.usedOffensiveIds)) return;
           if (proceedAfterAction(ns, set, get)) return;
           goToSupplyStep(ns, set, get);
         }
@@ -3327,7 +3336,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       }
       if (!ctx) { goToSupplyStep(ns, set, get); return; }
       const battleType = ctx.battleType === 'sea' ? 'battle_sea' as const : 'battle_land' as const;
-      if (tryOfferOffensiveResponse(battleType, ctx.spaceId, ctx.country, ns, set, get)) return;
+      if (tryOfferOffensiveResponse(battleType, ctx.spaceId, ctx.country, ns, set, get, ctx.usedOffensiveIds)) return;
       if (proceedAfterAction(ns, set, get)) return;
       goToSupplyStep(ns, set, get);
       return;
