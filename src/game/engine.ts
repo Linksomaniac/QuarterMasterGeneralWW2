@@ -1805,7 +1805,25 @@ export function resolveLendLease(
     });
     const toPlay = sorted[0];
     const newHand = cs.hand.filter((c) => c.id !== toPlay.id);
-    ns = { ...ns, countries: { ...ns.countries, [targetCountry]: { ...ns.countries[targetCountry], hand: newHand, discard: [...ns.countries[targetCountry].discard, toPlay] } } };
+    // Route the played card to the correct pile based on its type
+    if (toPlay.type === CardType.STATUS) {
+      let updatedCountry = { ...ns.countries[targetCountry], hand: newHand, statusCards: [...ns.countries[targetCountry].statusCards, toPlay] };
+      ns = { ...ns, countries: { ...ns.countries, [targetCountry]: updatedCountry } };
+      // Apply any SUPPLY_MARKER effects from the status card
+      for (const effect of toPlay.effects) {
+        if (effect.type === 'SUPPLY_MARKER' && effect.marker) {
+          if (effect.marker === 'canada') ns = { ...ns, supplyMarkers: { ...ns.supplyMarkers, canada: true } };
+          if (effect.marker === 'szechuan') ns = { ...ns, supplyMarkers: { ...ns.supplyMarkers, szechuan: true } };
+          if (effect.marker === 'scorched_earth_ukraine') ns = { ...ns, supplyMarkers: { ...ns.supplyMarkers, scorched_earth_ukraine: true } };
+          if (effect.marker === 'truk_supply') ns = { ...ns, supplyMarkers: { ...ns.supplyMarkers, truk_supply: true } };
+        }
+      }
+    } else if (toPlay.type === CardType.RESPONSE) {
+      let updatedCountry = { ...ns.countries[targetCountry], hand: newHand, responseCards: [...ns.countries[targetCountry].responseCards, toPlay] };
+      ns = { ...ns, countries: { ...ns.countries, [targetCountry]: updatedCountry } };
+    } else {
+      ns = { ...ns, countries: { ...ns.countries, [targetCountry]: { ...ns.countries[targetCountry], hand: newHand, discard: [...ns.countries[targetCountry].discard, toPlay] } } };
+    }
     ns = addLogEntry(ns, playingCountry, `${card.name}: ${COUNTRY_NAMES[targetCountry]} played ${toPlay.name}`);
   }
 
