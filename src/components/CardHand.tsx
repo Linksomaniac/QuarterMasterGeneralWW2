@@ -336,6 +336,46 @@ function ResponsePrompt() {
     );
   }
 
+  if (pa.type === 'BEGINNING_TURN_RESPONSE') {
+    const responder = pa.responseCountry;
+    if (!state.countries[responder]?.isHuman) return null;
+    const responderColor = COUNTRY_COLORS[responder];
+
+    return (
+      <div className="bg-[#0A1628]/95 backdrop-blur rounded-t-xl border-t border-red-900/60 p-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-3 h-3 rounded-full animate-pulse" style={{ backgroundColor: responderColor }} />
+            <div>
+              <span className="text-sm font-display font-bold" style={{ color: responderColor }}>
+                {COUNTRY_NAMES[responder]}
+              </span>
+              <span className="text-xs text-gray-400 ml-2">Beginning of Turn</span>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-gray-300">
+              Activate <strong className="text-yellow-400">{pa.responseCardName}</strong>?{' '}
+              <span className="text-red-300">{pa.description}</span>
+            </span>
+            <button
+              onClick={() => respondToOpportunity(true)}
+              className="px-4 py-1.5 rounded bg-red-900 text-white text-sm font-bold hover:bg-red-700 transition-colors"
+            >
+              Activate
+            </button>
+            <button
+              onClick={() => respondToOpportunity(false)}
+              className="px-4 py-1.5 rounded bg-gray-700 text-gray-300 text-sm font-bold hover:bg-gray-600 transition-colors"
+            >
+              Skip
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (pa.type === 'BATTLE_REACTION_OPPORTUNITY') {
     const responder = pa.responseCountry;
     if (!state.countries[responder]?.isHuman) return null;
@@ -1628,7 +1668,7 @@ export default function CardHand() {
           <MoveDestinationPrompt />
         )}
 
-        {state.pendingAction && state.pendingAction.type !== 'RESPONSE_OPPORTUNITY' && state.pendingAction.type !== 'SELECT_EW_TARGET' && state.pendingAction.type !== 'SELECT_LEND_LEASE_TARGET' && state.pendingAction.type !== 'SELECT_EVENT_CHOICE' && state.pendingAction.type !== 'SELECT_FROM_DISCARD' && state.pendingAction.type !== 'REORDER_CARDS' && state.pendingAction.type !== 'SELECT_ROSIE_CARDS' && state.pendingAction.type !== 'SELECT_RECRUIT_LOCATION' && state.pendingAction.type !== 'SELECT_EVENT_SPACE' && state.pendingAction.type !== 'SELECT_MALTA_CHOICE' && state.pendingAction.type !== 'SELECT_HAND_DISCARD' && state.pendingAction.type !== 'SELECT_OFFENSIVE_HAND_DISCARD' && state.pendingAction.type !== 'SELECT_PIECE_TO_REDEPLOY' && state.pendingAction.type !== 'SELECT_RECRUIT_COUNTRY' && state.pendingAction.type !== 'RATIONING_OPPORTUNITY' && state.pendingAction.type !== 'ENIGMA_OPPORTUNITY' && state.pendingAction.type !== 'SELECT_MOVE_PIECE' && state.pendingAction.type !== 'SELECT_MOVE_DESTINATION' && (
+        {state.pendingAction && state.pendingAction.type !== 'RESPONSE_OPPORTUNITY' && state.pendingAction.type !== 'SELECT_EW_TARGET' && state.pendingAction.type !== 'SELECT_LEND_LEASE_TARGET' && state.pendingAction.type !== 'SELECT_EVENT_CHOICE' && state.pendingAction.type !== 'SELECT_FROM_DISCARD' && state.pendingAction.type !== 'REORDER_CARDS' && state.pendingAction.type !== 'SELECT_ROSIE_CARDS' && state.pendingAction.type !== 'SELECT_RECRUIT_LOCATION' && state.pendingAction.type !== 'SELECT_EVENT_SPACE' && state.pendingAction.type !== 'SELECT_MALTA_CHOICE' && state.pendingAction.type !== 'SELECT_HAND_DISCARD' && state.pendingAction.type !== 'SELECT_OFFENSIVE_HAND_DISCARD' && state.pendingAction.type !== 'SELECT_PIECE_TO_REDEPLOY' && state.pendingAction.type !== 'SELECT_RECRUIT_COUNTRY' && state.pendingAction.type !== 'RATIONING_OPPORTUNITY' && state.pendingAction.type !== 'ENIGMA_OPPORTUNITY' && state.pendingAction.type !== 'SELECT_MOVE_PIECE' && state.pendingAction.type !== 'SELECT_MOVE_DESTINATION' && state.pendingAction.type !== 'BEGINNING_TURN_RESPONSE' && (
           <span className="text-xs text-yellow-400 animate-pulse">
             {state.pendingAction.type === 'SELECT_BUILD_LOCATION'
               ? `Click a highlighted space to build ${state.pendingAction.pieceType}`

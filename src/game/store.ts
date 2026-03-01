@@ -111,6 +111,7 @@ import {
   pickBestBattleTarget,
   pickBestBuildLocation,
   aiChooseEventEffect,
+  aiShouldTriggerDefenseOfMotherland,
 } from './ai';
 
 export interface PlayerConfig {
@@ -261,6 +262,59 @@ function tryOfferOffensiveResponse(
 }
 
 // ---------------------------------------------------------------------------
+// maybeSetOrAutoResolveEventSpace — when processEventEffects returns a
+// SELECT_EVENT_SPACE pending action, check whether the playing country is
+// human.  If human: pause and show the space-picker UI.  If AI: pick the
+// best space automatically and continue without interrupting the turn.
+// Fixes Patton Advances (and similar cards) prompting the wrong player.
+// ---------------------------------------------------------------------------
+function maybeSetOrAutoResolveEventSpace(
+  pa: Extract<PendingAction, { type: 'SELECT_EVENT_SPACE' }>,
+  ns: GameState,
+  set: (s: Partial<GameStoreState>) => void,
+  get: () => GameStore
+): boolean {
+  if (ns.countries[pa.playingCountry].isHuman) {
+    set({ ...ns, pendingAction: pa });
+    return true;
+  }
+
+  // AI playing country — pick automatically.
+  const diff = ns.countries[pa.playingCountry].aiDifficulty;
+  let pick: string | null = null;
+
+  if (pa.effectAction === 'land_battle') {
+    pick = pickBestBattleTarget(pa.validSpaces, pa.effectCountry, ns, diff);
+  } else {
+    pick = pickBestBuildLocation(pa.validSpaces, pa.effectCountry, ns, diff) ?? pa.validSpaces[0] ?? null;
+  }
+
+  if (!pick) {
+    goToSupplyStep(ns, set, get);
+    return true;
+  }
+
+  let aiNs = resolveEventEffectAtSpace(
+    pa.effectAction, pick, pa.effectCountry, pa.playingCountry, ns, pa.eventCardName
+  );
+
+  if (pa.remainingEffects.length > 0) {
+    const contResult = processEventEffects(pa.remainingEffects, pa.eventCardName, pa.playingCountry, aiNs);
+    if (contResult.pendingAction && contResult.pendingAction.type === 'SELECT_EVENT_SPACE') {
+      return maybeSetOrAutoResolveEventSpace(contResult.pendingAction, contResult.newState, set, get);
+    }
+    if (contResult.eventBuildInfo) {
+      if (handleEventBuildTrigger(contResult.eventBuildInfo, contResult.newState, set, get)) return true;
+    }
+    aiNs = contResult.newState;
+  }
+
+  if (proceedAfterAction(aiNs, set, get)) return true;
+  goToSupplyStep(aiNs, set, get);
+  return true;
+}
+
+// ---------------------------------------------------------------------------
 // handleEventBuildTrigger — after an event auto-resolves a build/recruit,
 // check for status card triggers (Superior Shipyards, Wartime Production, etc.)
 // and continue with remaining event effects afterward.
@@ -299,6 +353,11 @@ function handleEventBuildTrigger(
   if (buildInfo.remainingEffects.length > 0) {
     const result = processEventEffects(buildInfo.remainingEffects, buildInfo.eventCardName, buildInfo.playingCountry, ns);
     if (result.pendingAction) {
+      // For SELECT_EVENT_SPACE, check whether the playing country is human;
+      // AI countries auto-resolve so they never hand control to the wrong player.
+      if (result.pendingAction.type === 'SELECT_EVENT_SPACE') {
+        return maybeSetOrAutoResolveEventSpace(result.pendingAction, result.newState, set, get);
+      }
       set({ ...result.newState, pendingAction: result.pendingAction });
       return true;
     }
@@ -968,6 +1027,12 @@ function finishOffensiveChain(
     set({ actionContext: undefined });
     const contResult = processEventEffects(evCtx.remainingEffects, evCtx.eventCardName, evCtx.playingCountry, ns);
     if (contResult.pendingAction) {
+      // For SELECT_EVENT_SPACE, check whether the playing country is human;
+      // AI countries auto-resolve so they never hand control to the wrong player.
+      if (contResult.pendingAction.type === 'SELECT_EVENT_SPACE') {
+        maybeSetOrAutoResolveEventSpace(contResult.pendingAction, contResult.newState, set, get);
+        return;
+      }
       set({ ...contResult.newState, pendingAction: contResult.pendingAction });
       return;
     }
@@ -1186,10 +1251,27 @@ function continueBeginningOfTurnAfterMobileForce(
 
   const dmCard = findDefenseOfMotherlandOpportunity(country, advanced);
   if (dmCard) {
-    const before = advanced;
-    advanced = resolveDefenseOfMotherland(advanced);
-    if (advanced !== before) {
-      // log entries already inside resolveDefenseOfMotherland
+    const ussrIsHuman = advanced.countries[Country.SOVIET_UNION].isHuman;
+    if (ussrIsHuman) {
+      // Pause and let the human decide whether to activate the card.
+      set({
+        ...advanced,
+        selectedDiscards: new Set<string>(),
+        phase: GamePhase.AWAITING_RESPONSE,
+        pendingAction: {
+          type: 'BEGINNING_TURN_RESPONSE',
+          responseCountry: Country.SOVIET_UNION,
+          responseCardId: dmCard.id,
+          responseCardName: dmCard.name,
+          description: 'Recruit an Army in or adjacent to Moscow; then eliminate an Axis Army in Moscow.',
+        },
+      });
+      return;
+    }
+    // AI decision — use heuristic based on difficulty.
+    const diff = advanced.countries[Country.SOVIET_UNION].aiDifficulty;
+    if (aiShouldTriggerDefenseOfMotherland(advanced, diff)) {
+      advanced = resolveDefenseOfMotherland(advanced);
     }
   }
 
@@ -2865,6 +2947,23 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
       if (proceedAfterAction(ns, set, get)) return;
       goToSupplyStep(ns, set, get);
+      return;
+    }
+
+    // --- Beginning-of-Turn Response (Defense of the Motherland) ---
+    if (pa.type === 'BEGINNING_TURN_RESPONSE') {
+      let advanced = s;
+      if (accept) {
+        advanced = resolveDefenseOfMotherland(advanced);
+      }
+      // Declining keeps the card in responseCards for future turns.
+      set({ ...advanced, pendingAction: null, selectedDiscards: new Set<string>() });
+      setTimeout(() => {
+        const store = get();
+        if (store.phase === GamePhase.GAME_OVER) return;
+        const next = getCurrentCountry(gs(store));
+        if (!store.countries[next].isHuman) store.runFullAiTurn();
+      }, 300);
       return;
     }
 

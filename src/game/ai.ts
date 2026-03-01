@@ -1250,3 +1250,45 @@ export function aiChooseEventEffect(
   }
   return bestEffect;
 }
+
+// ---------------------------------------------------------------------------
+// aiShouldTriggerDefenseOfMotherland — called at the start of the USSR turn
+// when the card is in responseCards. Returns true if the AI should use it.
+// ---------------------------------------------------------------------------
+export function aiShouldTriggerDefenseOfMotherland(
+  state: GameState,
+  difficulty: 'easy' | 'medium' | 'hard'
+): boolean {
+  const allPieces = getAllPieces(state);
+
+  // Always worth using if we can eliminate an Axis army sitting in Moscow.
+  const axisInMoscow = allPieces.some(
+    (p) => p.spaceId === 'moscow' && getTeam(p.country) === Team.AXIS && p.type === 'army'
+  );
+  if (axisInMoscow) return true;
+
+  // Need at least one army in reserve to build.
+  const avail = getAvailablePieces(Country.SOVIET_UNION, state);
+  if (avail.armies <= 0) return false;
+
+  // Hard AI: always grab the free build if pieces are available.
+  if (difficulty === 'hard') return true;
+
+  // Medium AI: use it when Moscow or an adjacent space is unoccupied by Soviet armies.
+  if (difficulty === 'medium') {
+    const targets = ['moscow', ...getAdjacentSpaces('moscow')];
+    return targets.some((sid) => {
+      const sp = getSpace(sid);
+      if (!sp || sp.type !== SpaceType.LAND) return false;
+      return !allPieces.some(
+        (p) => p.spaceId === sid && p.country === Country.SOVIET_UNION && p.type === 'army'
+      );
+    });
+  }
+
+  // Easy AI: only use if Moscow itself is at risk (Axis adjacent to Moscow).
+  const moscowAdj = getAdjacentSpaces('moscow');
+  return allPieces.some(
+    (p) => moscowAdj.includes(p.spaceId) && getTeam(p.country) === Team.AXIS && p.type === 'army'
+  );
+}

@@ -405,6 +405,16 @@ export type PendingAction =
       movedPieceIds: string[];
       remainingEffects: CardEffect[];
       playingCountry: Country;
+    }
+  | {
+      /** Shown at the start of a nation's turn when they hold a beginning-of-turn
+       *  response card (e.g. Defense of the Motherland). Human decides; AI uses
+       *  a heuristic. Declining keeps the card in responseCards for future turns. */
+      type: 'BEGINNING_TURN_RESPONSE';
+      responseCountry: Country;
+      responseCardId: string;
+      responseCardName: string;
+      description: string;
     };
 
 export const MAX_ROUNDS = 20;
