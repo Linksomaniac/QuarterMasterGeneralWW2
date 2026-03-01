@@ -4757,16 +4757,30 @@ export function getValidMobileForceSpaces(state: GameState): string[] {
 
 export function resolveMobileForceAt(spaceId: string, state: GameState): GameState {
   const cs = state.countries[Country.JAPAN];
-  const piece: Piece = { id: `piece_mf_${Date.now()}`, country: Country.JAPAN, type: 'navy', spaceId };
-  return {
+  // Discard the Mobile Force card regardless
+  const ns: GameState = {
     ...state,
     countries: {
       ...state.countries,
       [Country.JAPAN]: {
         ...cs,
-        piecesOnBoard: [...cs.piecesOnBoard, piece],
         responseCards: cs.responseCards.filter((c) => c.id !== 'jpn_mobile_force'),
         discard: [...cs.discard, ...cs.responseCards.filter((c) => c.id === 'jpn_mobile_force')],
+      },
+    },
+  };
+  // Hard cap: only add the navy piece if within piece limit
+  const avail = getAvailablePieces(Country.JAPAN, ns);
+  if (avail.navies <= 0) return ns;
+  const updatedCs = ns.countries[Country.JAPAN];
+  const piece: Piece = { id: `piece_mf_${Date.now()}`, country: Country.JAPAN, type: 'navy', spaceId };
+  return {
+    ...ns,
+    countries: {
+      ...ns.countries,
+      [Country.JAPAN]: {
+        ...updatedCs,
+        piecesOnBoard: [...updatedCs.piecesOnBoard, piece],
       },
     },
   };
