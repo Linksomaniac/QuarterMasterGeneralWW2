@@ -1334,24 +1334,28 @@ export function resolveEventEffectAtSpace(
 
   switch (action) {
     case 'recruit_army': {
+      if (getAvailablePieces(effectCountry, ns).armies <= 0) break;
       const piece: Piece = { id: generatePieceId(), country: effectCountry, type: 'army', spaceId };
       ns = { ...ns, countries: { ...ns.countries, [effectCountry]: { ...ns.countries[effectCountry], piecesOnBoard: [...ns.countries[effectCountry].piecesOnBoard, piece] } } };
       ns = addLogEntry(ns, playingCountry, `${cardName}: recruited army in ${spaceName}`);
       break;
     }
     case 'recruit_navy': {
+      if (getAvailablePieces(effectCountry, ns).navies <= 0) break;
       const piece: Piece = { id: generatePieceId(), country: effectCountry, type: 'navy', spaceId };
       ns = { ...ns, countries: { ...ns.countries, [effectCountry]: { ...ns.countries[effectCountry], piecesOnBoard: [...ns.countries[effectCountry].piecesOnBoard, piece] } } };
       ns = addLogEntry(ns, playingCountry, `${cardName}: recruited navy in ${spaceName}`);
       break;
     }
     case 'build_army': {
+      if (getAvailablePieces(effectCountry, ns).armies <= 0) break;
       const piece: Piece = { id: generatePieceId(), country: effectCountry, type: 'army', spaceId };
       ns = { ...ns, countries: { ...ns.countries, [effectCountry]: { ...ns.countries[effectCountry], piecesOnBoard: [...ns.countries[effectCountry].piecesOnBoard, piece] } } };
       ns = addLogEntry(ns, playingCountry, `${cardName}: built army in ${spaceName}`);
       break;
     }
     case 'build_navy': {
+      if (getAvailablePieces(effectCountry, ns).navies <= 0) break;
       const piece: Piece = { id: generatePieceId(), country: effectCountry, type: 'navy', spaceId };
       ns = { ...ns, countries: { ...ns.countries, [effectCountry]: { ...ns.countries[effectCountry], piecesOnBoard: [...ns.countries[effectCountry].piecesOnBoard, piece] } } };
       ns = addLogEntry(ns, playingCountry, `${cardName}: built navy in ${spaceName}`);
@@ -1862,6 +1866,13 @@ export function resolveBuildAction(
   country: Country,
   state: GameState
 ): GameState {
+  // Hard cap: never exceed the piece limit regardless of caller.
+  // Callers that properly do a redeploy (remove a piece first) will always
+  // pass this check because the count is back within limits after removal.
+  const avail = getAvailablePieces(country, state);
+  if (pieceType === 'army' && avail.armies <= 0) return state;
+  if (pieceType === 'navy' && avail.navies <= 0) return state;
+
   const piece: Piece = {
     id: generatePieceId(),
     country,
