@@ -701,8 +701,21 @@ function scoreCard(
       if (available.navies <= 0) return -5;
       const locations = getValidBuildLocations(country, 'navy', state);
       if (locations.length === 0) return -5;
+      // Only count sea spaces that have an adjacent friendly army on land;
+      // unsupported navies are immediately eliminated so they're worthless.
+      const navyTeamPieces = getAllPieces(state).filter((p) => getTeam(p.country) === getTeam(country));
+      const supportedLocations = locations.filter((spaceId) => {
+        const sp = getSpace(spaceId);
+        if (sp?.type !== SpaceType.SEA) return true;
+        return getAdjacentSpaces(spaceId).some((adjId) => {
+          const adjSp = getSpace(adjId);
+          return adjSp?.type === SpaceType.LAND &&
+            navyTeamPieces.some((p) => p.spaceId === adjId && p.type === 'army');
+        });
+      });
+      if (supportedLocations.length === 0) return -5;
       const vpTargetsNav = isHard ? getVPTargetSpaces(country, state) : undefined;
-      let score = 4 + Math.max(locations.length, ...locations.map((l) => scoreSpace(l, country, state, vpTargetsNav)));
+      let score = 4 + Math.max(supportedLocations.length, ...supportedLocations.map((l) => scoreSpace(l, country, state, vpTargetsNav)));
       if (isHard && isEarly) score += 8;
       else if (isHard && isMid) score += 3;
       return score + countryBonus;
@@ -765,9 +778,6 @@ export function pickBestBuildLocation(
   difficulty: 'easy' | 'medium' | 'hard'
 ): string {
   if (validSpaces.length === 0) return '';
-  if (difficulty === 'easy') {
-    return validSpaces[Math.floor(Math.random() * validSpaces.length)];
-  }
 
   const allPieces = getAllPieces(state);
   const team = getTeam(country);
@@ -775,12 +785,31 @@ export function pickBestBuildLocation(
   const teamPieces = allPieces.filter((p) => getTeam(p.country) === team);
   const countryPieces = state.countries[country].piecesOnBoard;
 
+  // Pre-filter: a navy in a sea space requires at least one adjacent friendly
+  // team army on land to remain in supply. Exclude sea spaces that fail this
+  // check — building there results in immediate supply elimination.
+  const candidates = validSpaces.filter((spaceId) => {
+    const sp = getSpace(spaceId);
+    if (sp?.type !== SpaceType.SEA) return true; // land spaces are always fine
+    return getAdjacentSpaces(spaceId).some((adjId) => {
+      const adjSp = getSpace(adjId);
+      return adjSp?.type === SpaceType.LAND &&
+        teamPieces.some((p) => p.spaceId === adjId && p.type === 'army');
+    });
+  });
+  // Fall back to the full list only if every location was filtered out (edge case)
+  const spaces = candidates.length > 0 ? candidates : validSpaces;
+
+  if (difficulty === 'easy') {
+    return spaces[Math.floor(Math.random() * spaces.length)];
+  }
+
   const vpTargets = getVPTargetSpaces(country, state);
   const effectiveSupply = getEffectiveSupplySpaces(country, state);
-  let bestSpace = validSpaces[0];
+  let bestSpace = spaces[0];
   let bestScore = -Infinity;
 
-  for (const spaceId of validSpaces) {
+  for (const spaceId of spaces) {
     const sp = getSpace(spaceId);
     const isEffSupply = effectiveSupply.includes(spaceId);
     let score = scoreSpace(spaceId, country, state, vpTargets);
