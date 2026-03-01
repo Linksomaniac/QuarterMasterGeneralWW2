@@ -895,6 +895,57 @@ function processOffensiveResult(
     }
   }
 
+  // Handle Amphibious Landings (and similar) needing a redeploy to a fixed target space
+  if (result.needsRedeploy && result.targetBuildSpaceId) {
+    const targetSpaceId = result.targetBuildSpaceId;
+    const isHuman = ns.countries[country].isHuman;
+    const redeployPA = getRedeployOption(country, 'army', ns);
+    if (redeployPA) {
+      if (isHuman) {
+        ns = addLogEntry(ns, country, `${card.name}: no reserve armies — pick one to redeploy to ${getSpace(targetSpaceId)?.name ?? targetSpaceId}`);
+        set({
+          ...ns,
+          phase: GamePhase.PLAY_STEP,
+          pendingAction: { ...redeployPA, targetSpaceId },
+          actionContext: {
+            ...(get().actionContext ?? { type: 'build', country, spaceId: '', declinedCardIds: [], usedOffensiveIds: [], usedStatusAbilityIds: [] }),
+            usedOffensiveIds: usedIds,
+          },
+        });
+        return;
+      }
+      // AI: remove the first army (lowest priority) and place in target space
+      const armies = ns.countries[country].piecesOnBoard.filter((p) => p.type === 'army');
+      const remove = armies[0];
+      if (remove) {
+        const removedSpaceName = getSpace(remove.spaceId)?.name ?? remove.spaceId;
+        ns = {
+          ...ns,
+          countries: {
+            ...ns.countries,
+            [country]: {
+              ...ns.countries[country],
+              piecesOnBoard: ns.countries[country].piecesOnBoard.filter((p) => p.id !== remove.id),
+            },
+          },
+        };
+        const newPiece: Piece = { id: generatePieceId(), country, type: 'army', spaceId: targetSpaceId };
+        ns = {
+          ...ns,
+          countries: {
+            ...ns.countries,
+            [country]: {
+              ...ns.countries[country],
+              piecesOnBoard: [...ns.countries[country].piecesOnBoard, newPiece],
+            },
+          },
+        };
+        ns = addLogEntry(ns, country, `${card.name}: redeployed army from ${removedSpaceName} to ${getSpace(targetSpaceId)?.name ?? targetSpaceId}`);
+        chainTrigger = { type: 'build_army', spaceId: targetSpaceId, builtPieceId: newPiece.id };
+      }
+    }
+  }
+
   if (result.validBuildSpaces && result.validBuildSpaces.length > 1) {
     const isHuman = ns.countries[country].isHuman;
     const pieceType = result.buildPieceType ?? 'army';
@@ -3747,6 +3798,26 @@ export const useGameStore = create<GameStore>((set, get) => ({
       },
     };
     ns = addLogEntry(ns, redeployCountry, `Removed ${pa.pieceType} from ${spaceName} for redeployment`);
+
+    // Fixed-target redeploy (e.g. Amphibious Landings) — place army directly in the target space
+    if (pa.targetSpaceId) {
+      const newPiece: Piece = { id: generatePieceId(), country: redeployCountry, type: pa.pieceType, spaceId: pa.targetSpaceId };
+      ns = {
+        ...ns,
+        countries: {
+          ...ns.countries,
+          [redeployCountry]: {
+            ...ns.countries[redeployCountry],
+            piecesOnBoard: [...ns.countries[redeployCountry].piecesOnBoard, newPiece],
+          },
+        },
+      };
+      const targetName = getSpace(pa.targetSpaceId)?.name ?? pa.targetSpaceId;
+      ns = addLogEntry(ns, redeployCountry, `Built ${pa.pieceType} in ${targetName} (redeployed)`);
+      set({ ...ns, pendingAction: null });
+      goToSupplyStep(ns, set, get);
+      return;
+    }
 
     if (pa.currentEffect && pa.eventCardName && pa.playingCountry != null) {
       const allEffects = [pa.currentEffect, ...(pa.remainingEffects ?? [])];

@@ -233,7 +233,7 @@ export interface LogEntry {
 
 export type PendingAction =
   | { type: 'SELECT_BUILD_LOCATION'; pieceType: 'army' | 'navy'; validSpaces: string[]; buildCountry?: Country; eventCardName?: string; remainingEffects?: CardEffect[]; playingCountry?: Country }
-  | { type: 'SELECT_PIECE_TO_REDEPLOY'; pieceType: 'army' | 'navy'; piecesOnBoard: { pieceId: string; spaceId: string; spaceName: string }[]; redeployCountry: Country; currentEffect?: CardEffect; eventCardName?: string; remainingEffects?: CardEffect[]; playingCountry?: Country }
+  | { type: 'SELECT_PIECE_TO_REDEPLOY'; pieceType: 'army' | 'navy'; piecesOnBoard: { pieceId: string; spaceId: string; spaceName: string }[]; redeployCountry: Country; targetSpaceId?: string; currentEffect?: CardEffect; eventCardName?: string; remainingEffects?: CardEffect[]; playingCountry?: Country }
   | { type: 'SELECT_BATTLE_TARGET'; battleType: 'land' | 'sea'; validTargets: string[] }
   | { type: 'SELECT_DISCARD'; minDiscard: number; maxDiscard: number }
   | { type: 'CONFIRM_DISCARD_STEP' }

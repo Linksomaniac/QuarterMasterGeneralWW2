@@ -2436,9 +2436,11 @@ export function findOffensiveResponses(
 
       if (effect.type === 'BUILD_AFTER_BATTLE' && effect.pieceType === 'army' && effect.condition === 'adjacent_to_us_navy') {
         if (triggerType !== 'battle_land') continue;
-        const avail = getAvailablePieces(country, state);
-        if (avail.armies <= 0) continue;
         if (state.countries[country].deck.length === 0) continue;
+        // Allow trigger even with 0 reserves if there are armies on board to redeploy
+        const avail = getAvailablePieces(country, state);
+        const canBuild = avail.armies > 0 || cs.piecesOnBoard.some((p) => p.type === 'army');
+        if (!canBuild) continue;
         const pieces = getAllPieces(state);
         const hasNavyAdj = pieces.some((p) =>
           p.country === country && p.type === 'navy' &&
@@ -2568,7 +2570,7 @@ export function resolveOffensiveResponse(
   triggerSpaceId: string,
   country: Country,
   state: GameState
-): { newState: GameState; message: string; chainTrigger?: ChainTrigger; pendingElimination?: PendingElimination; validBattleTargets?: string[]; validBuildSpaces?: string[]; buildPieceType?: 'army' | 'navy'; buildCount?: number } {
+): { newState: GameState; message: string; chainTrigger?: ChainTrigger; pendingElimination?: PendingElimination; validBattleTargets?: string[]; validBuildSpaces?: string[]; buildPieceType?: 'army' | 'navy'; buildCount?: number; needsRedeploy?: boolean; targetBuildSpaceId?: string } {
   const isStatusCard = card.type === CardType.STATUS;
   let ns = isStatusCard ? state : activateProtectionResponse(country, card.id, state);
 
@@ -2640,10 +2642,13 @@ export function resolveOffensiveResponse(
 
     if (effect.type === 'BUILD_AFTER_BATTLE' && effect.pieceType === 'army' && effect.condition === 'adjacent_to_us_navy') {
       const avail = getAvailablePieces(country, ns);
-      if (avail.armies <= 0) return { newState: ns, message: `${card.name}: no armies available` };
       const enemyInSpace = allPieces.some((p) => p.spaceId === triggerSpaceId && getTeam(p.country) === enemyTeam);
       const friendlyInSpace = ns.countries[country].piecesOnBoard.some((p) => p.spaceId === triggerSpaceId);
       if (enemyInSpace || friendlyInSpace) return { newState: ns, message: `${card.name}: cannot build in ${getSpace(triggerSpaceId)?.name ?? triggerSpaceId}` };
+      if (avail.armies <= 0) {
+        // Signal to caller that a redeploy is needed to place the army in triggerSpaceId
+        return { newState: ns, message: `${card.name}: redeploy army to ${getSpace(triggerSpaceId)?.name ?? triggerSpaceId}`, needsRedeploy: true, targetBuildSpaceId: triggerSpaceId };
+      }
       const piece: Piece = { id: `piece_r${++_resolveIdCounter}_${Date.now()}`, country, type: 'army', spaceId: triggerSpaceId };
       ns = { ...ns, countries: { ...ns.countries, [country]: { ...ns.countries[country], piecesOnBoard: [...ns.countries[country].piecesOnBoard, piece] } } };
       return { newState: ns, message: `${card.name}: built army in ${getSpace(triggerSpaceId)?.name ?? triggerSpaceId}`, chainTrigger: { type: 'build_army', spaceId: triggerSpaceId, builtPieceId: piece.id } };
