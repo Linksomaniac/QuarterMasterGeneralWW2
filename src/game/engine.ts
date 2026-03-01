@@ -4051,14 +4051,15 @@ export function applyWolfPacksModifier(
 // 32. isProtectedByShvernik — check if a piece is protected by Shvernik
 // ---------------------------------------------------------------------------
 export function isProtectedByShvernik(piece: Piece, state: GameState): boolean {
-  if (getTeam(piece.country) !== Team.ALLIES) return false;
+  // Card text: "Soviet Armies are never out of supply."
+  // Only protects Soviet armies (not navies, not other Allied nations).
+  // Protection is map-wide — there is no geographic restriction.
+  if (piece.country !== Country.SOVIET_UNION) return false;
+  if (piece.type !== 'army') return false;
   const ussrStatus = state.countries[Country.SOVIET_UNION].statusCards;
-  const hasShvernik = ussrStatus.some((c) =>
+  return ussrStatus.some((c) =>
     c.effects.some((e) => e.type === 'PROTECT_PIECE' && e.condition === 'only_land_battle')
   );
-  if (!hasShvernik) return false;
-  const moscowAdj = getAdjacentSpaces('moscow');
-  return piece.spaceId === 'moscow' || moscowAdj.includes(piece.spaceId);
 }
 
 // ---------------------------------------------------------------------------
