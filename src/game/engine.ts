@@ -1073,6 +1073,17 @@ function getEffectValidSpaces(
     return valid.length > 0 ? { action: 'land_battle', spaces: valid, effectCountry: country, prompt: `Battle a land space`, count, skippable: false } : null;
   }
 
+  // LAND_BATTLE without a where clause (e.g. Broad Front: 3 battles anywhere).
+  // Route through SELECT_EVENT_SPACE so human gets to choose; AI auto-picks via
+  // maybeSetOrAutoResolveEventSpace / runFullAiTurn's non-skippable battle loop.
+  if (effect.type === 'LAND_BATTLE' && !effect.where && !effect.condition) {
+    const valid = getValidBattleTargets(country, 'land', state);
+    const count = effect.count ?? 1;
+    return valid.length > 0
+      ? { action: 'land_battle' as const, spaces: valid, effectCountry: country, prompt: 'Choose a land space to battle', count, skippable: false }
+      : null;
+  }
+
   if (effect.type === 'SEA_BATTLE' && effect.where) {
     const valid = effect.where.filter((sid) =>
       allPcs.some((p) => p.spaceId === sid && p.type === 'navy' && getTeam(p.country) === enemyTeam)

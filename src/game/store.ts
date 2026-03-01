@@ -1886,6 +1886,22 @@ export const useGameStore = create<GameStore>((set, get) => ({
         }
       }
 
+      // Non-skippable mandatory multi-battle (e.g. Broad Front: 3 battles).
+      // After each human selection re-prompt with fresh valid targets.
+      if (newRemaining > 0 && !pa.skippable && pa.effectAction === 'land_battle') {
+        const recheck = processEventEffects(
+          [{ type: 'LAND_BATTLE' as const, count: newRemaining }],
+          pa.eventCardName,
+          pa.playingCountry,
+          ns
+        );
+        if (recheck.pendingAction?.type === 'SELECT_EVENT_SPACE') {
+          set({ ...recheck.newState, pendingAction: { ...recheck.pendingAction, remainingEffects: pa.remainingEffects } });
+          return;
+        }
+        ns = recheck.newState;
+      }
+
       if (pa.remainingEffects.length > 0) {
         const contResult = processEventEffects(pa.remainingEffects, pa.eventCardName, pa.playingCountry, ns);
         if (contResult.pendingAction) {
@@ -2608,6 +2624,28 @@ export const useGameStore = create<GameStore>((set, get) => ({
                   ns = recheck.newState;
                 }
                 break;
+              }
+            }
+
+            // Non-skippable mandatory multi-battle (e.g. Broad Front: 3 battles).
+            // Hard AI picks the best target for each remaining battle.
+            if (rem > 0 && !pendingAction.skippable && pendingAction.effectAction === 'land_battle') {
+              while (rem > 0) {
+                const recheck = processEventEffects(
+                  [{ type: 'LAND_BATTLE' as const, count: rem }],
+                  pendingAction.eventCardName,
+                  pendingAction.playingCountry,
+                  ns
+                );
+                ns = recheck.newState;
+                if (recheck.pendingAction?.type === 'SELECT_EVENT_SPACE' && recheck.pendingAction.validSpaces.length > 0) {
+                  const nextPick = pickBestBattleTarget(recheck.pendingAction.validSpaces, pendingAction.effectCountry, ns, diff);
+                  if (!nextPick) break;
+                  ns = resolveEventEffectAtSpace('land_battle', nextPick, pendingAction.effectCountry, pendingAction.playingCountry, ns, pendingAction.eventCardName);
+                  rem--;
+                } else {
+                  break;
+                }
               }
             }
 
