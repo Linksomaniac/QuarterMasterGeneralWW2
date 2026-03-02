@@ -236,14 +236,19 @@ export function isInSupply(piece: Piece, state: GameState): boolean {
         return chainCache.get(c)!;
       };
 
+      // The navy's supply chain runs through its OWN country's armies only.
+      // An allied army (e.g. Germany adjacent to the Mediterranean) does NOT
+      // supply an Italian navy — each nation's fleet is anchored by that
+      // nation's own piece chain back to a supply space.
+      const chain = getChain(country);
       return getAdjacentSpaces(piece.spaceId).some((adjId) => {
         const adjSpace = getSpace(adjId);
         if (adjSpace?.type !== 'LAND') return false;
-        return allPieces.some((p) => {
-          if (p.spaceId !== adjId || p.type !== 'army' || getTeam(p.country) !== team) return false;
-          // The supporting army must be supply-connected in its own country's chain.
-          return getChain(p.country).has(adjId);
-        });
+        // There must be an army of the SAME country on the adjacent land tile,
+        // and that army must be supply-connected in the country's own chain.
+        return allPieces.some(
+          (p) => p.spaceId === adjId && p.type === 'army' && p.country === country && chain.has(adjId)
+        );
       });
     }
     // Navy on a non-sea space (rare): fall through to army BFS check.
