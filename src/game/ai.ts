@@ -1182,45 +1182,73 @@ export function aiChooseDiscards(
   difficulty: 'easy' | 'medium' | 'hard'
 ): number[] {
   const country = getCurrentCountry(state);
-  const hand = state.countries[country].hand;
+  const cs = state.countries[country];
+  const hand = cs.hand;
 
   if (hand.length === 0) return [];
 
   const scored = hand.map((c, i) => ({ score: scoreCard(c, state, difficulty), index: i }));
   scored.sort((a, b) => a.score - b.score);
 
-  // Score-based discard: dump cards below a quality threshold.
-  // Low-score cards are dead weight (no valid targets, no pieces, etc.)
-  // and should be swapped for fresh draws from the deck.
-  // Higher threshold = pickier about card quality = more discards.
-  const discardThreshold = difficulty === 'easy' ? -3
+  // Deck conservation: each discard costs an extra draw from deck.
+  // Playing 1 card per turn already draws 1; each additional discard burns 1 more.
+  // When the deck is low, be very conservative — running out means EW hurts badly
+  // and you lose VP from having no cards to play.
+  const deckSize = cs.deck.length;
+  const remainingRounds = Math.max(1, 20 - state.round);
+
+  // How many deck cards can we safely spare beyond the 1-per-turn baseline?
+  // Reserve enough for ~1 draw per remaining round, then allow extras to be discarded.
+  const safeExtraDraws = Math.max(0, deckSize - remainingRounds);
+
+  // Base threshold: cards below this score are candidates for discard
+  const baseThreshold = difficulty === 'easy' ? -3
     : difficulty === 'medium' ? 0
     : 3;
 
-  const toDiscard: number[] = [];
+  // When deck is thin, raise the bar for discarding (make threshold more negative)
+  // so only truly awful cards get tossed. When deck is healthy, use base threshold.
+  let discardThreshold = baseThreshold;
+  if (deckSize <= 5) {
+    // Very low deck: only discard truly unplayable cards
+    discardThreshold = -5;
+  } else if (deckSize <= 10) {
+    // Low deck: be conservative
+    discardThreshold = Math.min(baseThreshold, -2);
+  }
+
+  const candidates: number[] = [];
   for (const s of scored) {
     if (s.score < discardThreshold) {
-      toDiscard.push(s.index);
+      candidates.push(s.index);
     }
   }
 
-  // Hard AI also dumps excess EW cards and duplicates (3+) even above threshold
+  // Hard AI also considers EW cards and 3+ duplicates as discard candidates
   if (difficulty === 'hard') {
     for (const s of scored) {
-      if (toDiscard.includes(s.index)) continue;
+      if (candidates.includes(s.index)) continue;
       const card = hand[s.index];
-      if (card.type === CardType.ECONOMIC_WARFARE) {
-        toDiscard.push(s.index);
+      if (card.type === CardType.ECONOMIC_WARFARE && s.score < baseThreshold) {
+        candidates.push(s.index);
         continue;
       }
       const dupeCount = hand.filter((c) => c.type === card.type && c.name === card.name).length;
-      if (dupeCount > 2) {
-        toDiscard.push(s.index);
+      if (dupeCount > 2 && s.score < baseThreshold) {
+        candidates.push(s.index);
       }
     }
   }
 
-  return toDiscard;
+  // Cap discards by how many extra draws the deck can safely support.
+  // Sort candidates by score (worst first) so we discard the worst ones.
+  candidates.sort((a, b) => {
+    const sa = scored.find((s) => s.index === a)!.score;
+    const sb = scored.find((s) => s.index === b)!.score;
+    return sa - sb;
+  });
+
+  return candidates.slice(0, Math.max(0, safeExtraDraws));
 }
 
 // ---------------------------------------------------------------------------
