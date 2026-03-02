@@ -1189,17 +1189,38 @@ export function aiChooseDiscards(
   const scored = hand.map((c, i) => ({ score: scoreCard(c, state, difficulty), index: i }));
   scored.sort((a, b) => a.score - b.score);
 
-  if (difficulty === 'hard') {
-    const ewCards = scored.filter((s) => hand[s.index].type === CardType.ECONOMIC_WARFARE);
-    if (ewCards.length > 0) return [ewCards[0].index];
-    const duplicates = scored.filter((s) => {
-      const card = hand[s.index];
-      return hand.filter((c) => c.type === card.type && c.name === card.name).length > 2;
-    });
-    if (duplicates.length > 0) return [duplicates[0].index];
+  // Score-based discard: dump cards below a quality threshold.
+  // Low-score cards are dead weight (no valid targets, no pieces, etc.)
+  // and should be swapped for fresh draws from the deck.
+  // Higher threshold = pickier about card quality = more discards.
+  const discardThreshold = difficulty === 'easy' ? -3
+    : difficulty === 'medium' ? 0
+    : 3;
+
+  const toDiscard: number[] = [];
+  for (const s of scored) {
+    if (s.score < discardThreshold) {
+      toDiscard.push(s.index);
+    }
   }
 
-  return [scored[0].index];
+  // Hard AI also dumps excess EW cards and duplicates (3+) even above threshold
+  if (difficulty === 'hard') {
+    for (const s of scored) {
+      if (toDiscard.includes(s.index)) continue;
+      const card = hand[s.index];
+      if (card.type === CardType.ECONOMIC_WARFARE) {
+        toDiscard.push(s.index);
+        continue;
+      }
+      const dupeCount = hand.filter((c) => c.type === card.type && c.name === card.name).length;
+      if (dupeCount > 2) {
+        toDiscard.push(s.index);
+      }
+    }
+  }
+
+  return toDiscard;
 }
 
 // ---------------------------------------------------------------------------
