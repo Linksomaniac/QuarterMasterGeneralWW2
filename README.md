@@ -4,8 +4,11 @@ A browser-based digital implementation of **Quartermaster General WW2: 2nd Editi
 
 > Based on the board game by Ian Brody. Learn more on [BoardGameGeek](https://boardgamegeek.com/boardgame/331979/quartermaster-general-ww2-2nd-edition).
 
-![Setup Screen](screenshot-1-setup.png)
+## [Play Now](https://linksomaniac.github.io/QuarterMasterGeneralWW2/)
+
 ![Game Board](screenshot-2-gameboard.png)
+
+![Setup Screen](screenshot-1-setup.png)
 
 ---
 
@@ -20,14 +23,22 @@ A browser-based digital implementation of **Quartermaster General WW2: 2nd Editi
 
 ---
 
-## Prerequisites
+## Play Online
+
+The game is hosted on GitHub Pages and requires no installation:
+
+**[https://linksomaniac.github.io/QuarterMasterGeneralWW2/](https://linksomaniac.github.io/QuarterMasterGeneralWW2/)**
+
+---
+
+## Local Development
+
+### Prerequisites
 
 - [Node.js](https://nodejs.org/) v18 or later
 - npm (included with Node.js)
 
----
-
-## Installation
+### Installation
 
 ```bash
 # 1. Clone the repository
@@ -41,23 +52,15 @@ npm install
 npm run dev
 ```
 
-Then open [http://localhost:5173](http://localhost:5173) in your browser.
+Then open [http://localhost:5173/QuarterMasterGeneralWW2/](http://localhost:5173/QuarterMasterGeneralWW2/) in your browser.
 
----
-
-## Build for Production
+### Build for Production
 
 ```bash
 npm run build
 ```
 
 The compiled output will be in the `dist/` folder and can be served by any static file host.
-
-To preview the production build locally:
-
-```bash
-npm run preview
-```
 
 ---
 
@@ -68,13 +71,13 @@ npm run preview
 | React 18 | UI components |
 | TypeScript | Type safety |
 | Vite | Build tool & dev server |
-| Zustand + Immer | Game state management |
+| Zustand | Game state management |
 | Tailwind CSS | Styling |
 
 ---
 
 ## About the Board Game
 
-**Quartermaster General WW2: 2nd Edition** is a fast-paced, card-driven wargame for 2–6 players set in World War II. Each power has a unique deck of cards to build armies and navies, attack enemies, and maintain supply lines. Supply is everything — cut your enemy's supply and their forces surrender.
+**Quartermaster General WW2: 2nd Edition** is a fast-paced, card-driven wargame for 2-6 players set in World War II. Each power has a unique deck of cards to build armies and navies, attack enemies, and maintain supply lines. Supply is everything — cut your enemy's supply and their forces surrender.
 
-[View on BoardGameGeek →](https://boardgamegeek.com/boardgame/331979/quartermaster-general-ww2-2nd-edition)
+[View on BoardGameGeek](https://boardgamegeek.com/boardgame/331979/quartermaster-general-ww2-2nd-edition)
