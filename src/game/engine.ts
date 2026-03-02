@@ -161,46 +161,31 @@ function isWithinNSpaces(fromId: string, toId: string, n: number): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// 4. isInSupply
+// 4. computeArmySupplyChain / isInSupply
 // ---------------------------------------------------------------------------
-export function isInSupply(piece: Piece, state: GameState): boolean {
-  const country = piece.country;
+
+// BFS from supply origins (supply spaces that have at least one army of
+// `country`) through all same-country piece positions.  Returns the set of
+// spaces reachable via that chain — any army whose spaceId is in the returned
+// set is considered in supply.
+function computeArmySupplyChain(
+  country: Country,
+  allPieces: Piece[],
+  state: GameState
+): Set<string> {
   const team = getTeam(country);
-  const allPieces = getAllPieces(state);
-
-  // Navies in sea spaces are in supply if adjacent to any land space containing
-  // an allied army. No BFS piece-chain back to a supply space is required —
-  // the adjacent army acts as the supply anchor. This matches QMG rules and
-  // fixes the bug where a navy built adjacent to a friendly army (e.g. Sea of
-  // Japan next to Philippines) was incorrectly eliminated because the BFS
-  // couldn't reach the sea space through piece chains.
-  if (piece.type === 'navy') {
-    const space = getSpace(piece.spaceId);
-    if (space?.type === 'SEA') {
-      return getAdjacentSpaces(piece.spaceId).some((adjId) => {
-        const adjSpace = getSpace(adjId);
-        if (adjSpace?.type !== 'LAND') return false;
-        return allPieces.some(
-          (p) => p.spaceId === adjId && p.type === 'army' && getTeam(p.country) === team
-        );
-      });
-    }
-    // Navy on a non-sea space (rare): fall through to army BFS check
-  }
-
-  // Armies (and non-sea navies): BFS from supply origins through piece chains.
+  const isAxisTeam = team === Team.AXIS;
   const supplySpaces = getSupplySpacesForCountry(country, state.supplyMarkers);
   const straitStatuses = getStraitStatus(allPieces.map((p) => ({ country: p.country, spaceId: p.spaceId })));
-  const isAxisTeam = team === Team.AXIS;
 
   const countryPieces = allPieces.filter((p) => p.country === country);
   const supplyOrigins = supplySpaces.filter((spaceId) =>
     countryPieces.some((p) => p.spaceId === spaceId && p.type === 'army')
   );
-  if (supplyOrigins.length === 0) return false;
+  if (supplyOrigins.length === 0) return new Set<string>();
 
   const pieceSpaces = new Set(countryPieces.map((p) => p.spaceId));
-  const isAdjacent = (a: string, b: string) =>
+  const isAdjFn = (a: string, b: string) =>
     getAdjacentSpaces(a).includes(b) || areAdjacentForTeam(a, b, isAxisTeam, straitStatuses);
 
   const reached = new Set<string>(supplyOrigins);
@@ -209,7 +194,7 @@ export function isInSupply(piece: Piece, state: GameState): boolean {
   while (queue.length > 0) {
     const current = queue.shift()!;
     for (const adj of getAdjacentSpaces(current)) {
-      if (!reached.has(adj) && pieceSpaces.has(adj) && isAdjacent(current, adj)) {
+      if (!reached.has(adj) && pieceSpaces.has(adj) && isAdjFn(current, adj)) {
         reached.add(adj);
         queue.push(adj);
       }
@@ -229,7 +214,43 @@ export function isInSupply(piece: Piece, state: GameState): boolean {
     }
   }
 
-  return reached.has(piece.spaceId);
+  return reached;
+}
+
+export function isInSupply(piece: Piece, state: GameState): boolean {
+  const country = piece.country;
+  const team = getTeam(country);
+  const allPieces = getAllPieces(state);
+
+  if (piece.type === 'navy') {
+    const space = getSpace(piece.spaceId);
+    if (space?.type === 'SEA') {
+      // Supply Step 1 + Step 2 for navies:
+      // A navy is in supply only if it is adjacent to an allied army that is
+      // ITSELF supply-connected (i.e. that army's space is reachable in its
+      // own country's BFS chain back to a supply space).
+      // Cache chains per ally country so we run each BFS at most once.
+      const chainCache = new Map<Country, Set<string>>();
+      const getChain = (c: Country) => {
+        if (!chainCache.has(c)) chainCache.set(c, computeArmySupplyChain(c, allPieces, state));
+        return chainCache.get(c)!;
+      };
+
+      return getAdjacentSpaces(piece.spaceId).some((adjId) => {
+        const adjSpace = getSpace(adjId);
+        if (adjSpace?.type !== 'LAND') return false;
+        return allPieces.some((p) => {
+          if (p.spaceId !== adjId || p.type !== 'army' || getTeam(p.country) !== team) return false;
+          // The supporting army must be supply-connected in its own country's chain.
+          return getChain(p.country).has(adjId);
+        });
+      });
+    }
+    // Navy on a non-sea space (rare): fall through to army BFS check.
+  }
+
+  // Armies (and non-sea navies): BFS from supply origins through piece chains.
+  return computeArmySupplyChain(country, allPieces, state).has(piece.spaceId);
 }
 
 // ---------------------------------------------------------------------------
@@ -2170,7 +2191,8 @@ function applyAtlanticWallPenalty(
 export function resolveBattleAction(
   spaceId: string,
   country: Country,
-  state: GameState
+  state: GameState,
+  specificPieceId?: string
 ): GameState {
   const allPieces = getAllPieces(state);
   const enemyTeam = getEnemyTeam(country);
@@ -2199,7 +2221,9 @@ export function resolveBattleAction(
     return addLogEntry(ns, country, `Eliminated ALL ${piecesToRemove.length} enemy piece(s) in ${spaceName}`);
   }
 
-  const pieceToRemove = allPieces.find((p) => p.spaceId === spaceId && getTeam(p.country) === enemyTeam);
+  const pieceToRemove = specificPieceId
+    ? allPieces.find((p) => p.id === specificPieceId)
+    : allPieces.find((p) => p.spaceId === spaceId && getTeam(p.country) === enemyTeam);
   if (!pieceToRemove) return state;
 
   const targetCountry = pieceToRemove.country;
