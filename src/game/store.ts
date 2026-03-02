@@ -302,6 +302,13 @@ function maybeSetOrAutoResolveEventSpace(
     pa.effectAction, pick, pa.effectCountry, pa.playingCountry, ns, pa.eventCardName
   );
 
+  // After a battle event effect, check for offensive responses (Amphibious Landing, Blitzkrieg, etc.)
+  const aiIsBattle = pa.effectAction === 'land_battle' || pa.effectAction === 'sea_battle';
+  if (aiIsBattle) {
+    const aiBattleType = pa.effectAction === 'sea_battle' ? 'sea' as const : 'land' as const;
+    if (handleEventBattleTrigger(aiBattleType, pick, pa.playingCountry, pa.remainingEffects, pa.eventCardName, aiNs, set, get)) return true;
+  }
+
   if (pa.remainingEffects.length > 0) {
     const contResult = processEventEffects(pa.remainingEffects, pa.eventCardName, pa.playingCountry, aiNs);
     if (contResult.pendingAction && contResult.pendingAction.type === 'SELECT_EVENT_SPACE') {
@@ -376,6 +383,49 @@ function handleEventBuildTrigger(
     return true;
   }
 
+  return false;
+}
+
+// ---------------------------------------------------------------------------
+// handleEventBattleTrigger — after an event card resolves a battle, check for
+// offensive responses (Amphibious Landing, Blitzkrieg, etc.) and continue with
+// remaining event effects afterward via eventContinuation.
+// ---------------------------------------------------------------------------
+function handleEventBattleTrigger(
+  battleType: 'land' | 'sea',
+  spaceId: string,
+  playingCountry: Country,
+  remainingEffects: CardEffect[],
+  eventCardName: string,
+  ns: GameState,
+  set: (s: Partial<GameStoreState>) => void,
+  get: () => GameStore
+): boolean {
+  const trigType = battleType === 'sea' ? 'battle_sea' as const : 'battle_land' as const;
+
+  set({
+    actionContext: {
+      type: 'battle',
+      country: playingCountry,
+      spaceId,
+      battleType,
+      declinedCardIds: [],
+      usedOffensiveIds: [],
+      usedStatusAbilityIds: [],
+      eventContinuation: remainingEffects.length > 0 ? {
+        remainingEffects,
+        eventCardName,
+        playingCountry,
+      } : undefined,
+    },
+  });
+
+  if (tryOfferOffensiveResponse(trigType, spaceId, playingCountry, ns, set, get)) {
+    return true;
+  }
+
+  // No offensive response available — clean up actionContext
+  set({ actionContext: undefined });
   return false;
 }
 
@@ -1943,6 +1993,19 @@ export const useGameStore = create<GameStore>((set, get) => ({
         };
         if (handleEventBuildTrigger(buildInfo, ns, set, get)) return;
       }
+
+      // After a battle event effect, check for offensive responses (Amphibious Landing, Blitzkrieg, etc.)
+      const isBattleAction = pa.effectAction === 'land_battle' || pa.effectAction === 'sea_battle';
+      if (isBattleAction) {
+        const battleType = pa.effectAction === 'sea_battle' ? 'sea' as const : 'land' as const;
+        // Bundle remaining same-type battles + other remaining effects into eventContinuation
+        const remainingBattles: CardEffect[] = newRemaining > 0
+          ? [{ type: pa.effectAction === 'sea_battle' ? 'SEA_BATTLE' : 'LAND_BATTLE', count: newRemaining } as CardEffect]
+          : [];
+        const allRemaining = [...remainingBattles, ...pa.remainingEffects];
+        if (handleEventBattleTrigger(battleType, spaceId, pa.playingCountry, allRemaining, pa.eventCardName, ns, set, get)) return;
+      }
+
       if (newRemaining > 0 && pa.skippable) {
         const recheck = processEventEffects(
           [{ type: pa.effectAction === 'recruit_army' ? 'RECRUIT_ARMY' : pa.effectAction === 'recruit_navy' ? 'RECRUIT_NAVY' : pa.effectAction === 'eliminate_army' ? 'ELIMINATE_ARMY' : 'LAND_BATTLE', where: pa.validSpaces, count: newRemaining, condition: pa.validSpaces.length > 5 ? 'adjacent_or_in' : undefined } as any],
