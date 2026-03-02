@@ -2425,14 +2425,19 @@ export const useGameStore = create<GameStore>((set, get) => ({
             pendingAction: {
               type: 'SELECT_ROSIE_CARDS',
               handCards: [...ns.countries[country].hand],
-              minCards: 1,
+              minCards: 0,
               maxCards: Math.min(2, ns.countries[country].hand.length),
             },
           });
           return;
         } else {
+          const handBefore = ns.countries[country].hand.length;
           ns = resolveRosieAI(ns);
-          ns = addLogEntry(ns, country, `Rosie the Riveter: returned cards to bottom of deck`);
+          const handAfter = ns.countries[country].hand.length;
+          const returned = handBefore - handAfter;
+          if (returned > 0) {
+            ns = addLogEntry(ns, country, `Rosie the Riveter: returned ${returned} card(s) to bottom of deck`);
+          }
         }
       }
 
@@ -3900,12 +3905,14 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (cardIds.length < pa.minCards || cardIds.length > pa.maxCards) return;
 
     const country = getCurrentCountry(s);
-    s = resolveRosieWithCards(s, cardIds);
-    const returnedNames = pa.handCards
-      .filter((c) => cardIds.includes(c.id))
-      .map((c) => c.name)
-      .join(', ');
-    s = addLogEntry(s, country, `Rosie the Riveter: returned ${returnedNames} to bottom of deck`);
+    if (cardIds.length > 0) {
+      s = resolveRosieWithCards(s, cardIds);
+      const returnedNames = pa.handCards
+        .filter((c) => cardIds.includes(c.id))
+        .map((c) => c.name)
+        .join(', ');
+      s = addLogEntry(s, country, `Rosie the Riveter: returned ${returnedNames} to bottom of deck`);
+    }
     s = { ...s, pendingAction: null };
 
     set({ ...s, phase: GamePhase.DISCARD_STEP });

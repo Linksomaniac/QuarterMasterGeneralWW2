@@ -4623,7 +4623,6 @@ export function resolveRosieAI(state: GameState): GameState {
   const cs = state.countries[Country.USA];
   if (cs.hand.length === 0) return state;
 
-  const allPieces = getAllPieces(state);
   const usaPieces = cs.piecesOnBoard;
   const hasArmyOnBoard = usaPieces.some((p) => p.type === 'army');
   const hasNavyOnBoard = usaPieces.some((p) => p.type === 'navy');
@@ -4669,8 +4668,18 @@ export function resolveRosieAI(state: GameState): GameState {
   });
 
   scored.sort((a, b) => a.keepScore - b.keepScore);
-  const returnCount = Math.min(2, scored.length);
-  const toReturnIds = scored.slice(0, returnCount).map((s) => s.card.id);
+
+  // Only return cards that are low-value (keepScore < 10).
+  // If all cards are good, skip Rosie entirely (return 0).
+  // This preserves a strong hand rather than forcing returns.
+  const toReturnIds: string[] = [];
+  for (const s of scored) {
+    if (toReturnIds.length >= 2) break;
+    if (s.keepScore < 10) {
+      toReturnIds.push(s.card.id);
+    }
+  }
+  if (toReturnIds.length === 0) return state;
   return resolveRosieWithCards(state, toReturnIds);
 }
 

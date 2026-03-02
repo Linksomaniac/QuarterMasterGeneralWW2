@@ -968,7 +968,7 @@ function RosieCardPrompt() {
   return (
     <div className="flex flex-col gap-2">
       <span className="text-xs text-yellow-400">
-        Rosie the Riveter: Select {pa.minCards}–{pa.maxCards} card(s) to return to the bottom of your deck
+        Rosie the Riveter: Select 0–{pa.maxCards} card(s) to return to the bottom of your deck (optional)
       </span>
       <div className="flex gap-2 flex-wrap">
         {pa.handCards.map((card) => (
@@ -986,17 +986,14 @@ function RosieCardPrompt() {
           </button>
         ))}
       </div>
-      <button
-        onClick={() => resolveRosieSelection(Array.from(selected))}
-        disabled={selected.size < pa.minCards}
-        className={`px-4 py-1.5 rounded text-xs font-bold border transition-colors self-start ${
-          selected.size >= pa.minCards
-            ? 'border-green-500 text-green-300 bg-green-500/20 hover:bg-green-500/40 cursor-pointer'
-            : 'border-gray-600 text-gray-500 bg-gray-800/50 cursor-not-allowed opacity-50'
-        }`}
-      >
-        Confirm ({selected.size} selected)
-      </button>
+      <div className="flex gap-2">
+        <button
+          onClick={() => resolveRosieSelection(Array.from(selected))}
+          className="px-4 py-1.5 rounded text-xs font-bold border transition-colors border-green-500 text-green-300 bg-green-500/20 hover:bg-green-500/40 cursor-pointer"
+        >
+          {selected.size === 0 ? 'Skip (Return None)' : `Confirm (${selected.size} selected)`}
+        </button>
+      </div>
     </div>
   );
 }
