@@ -169,31 +169,146 @@ function getCountryCardBonus(card: Card, country: Country, state: GameState, rou
     bonus += 6;
   }
 
-  // --- Germany: status chaining bonuses ---
-  if (country === Country.GERMANY && card.type === CardType.STATUS) {
+  // --- Germany: status chain — Blitzkrieg / Bias for Action / Dive Bombers ---
+  // These three cards create a devastating combo: battle → build in battled space
+  // → battle again → battle again. Each one in the chain massively multiplies
+  // Germany's offensive power, so getting them down early is critical.
+  if (country === Country.GERMANY) {
     const activeIds = new Set(state.countries[country].statusCards.map((c) => c.id));
     const chainCards = ['ger_blitzkrieg', 'ger_bias_for_action', 'ger_dive_bombers'];
     const activeChain = chainCards.filter((id) => activeIds.has(id)).length;
-    if (chainCards.includes(card.id) && !activeIds.has(card.id)) {
-      bonus += activeChain * 6;
+
+    if (card.type === CardType.STATUS && chainCards.includes(card.id) && !activeIds.has(card.id)) {
+      // Escalating bonus: 1st chain card +10, 2nd +20, 3rd +30
+      bonus += (activeChain + 1) * 10;
+      // Extra urgency in early/mid game — chain must be set up before it's too late
+      if (isEarly) bonus += 12;
+      else if (isMid) bonus += 6;
+    }
+    // VP-generating status cards (Abundant Resources, Swedish Iron Ore) also get a boost
+    if (card.type === CardType.STATUS && !chainCards.includes(card.id)) {
+      const hasVPEffect = card.effects?.some((e) => e.type === 'VP_PER_CONDITION');
+      if (hasVPEffect) bonus += 8;
+    }
+    // Once chain is active, build and battle cards become more valuable
+    // because Blitzkrieg/Bias/Dive Bombers multiply their effects
+    if (activeChain >= 2) {
+      if (card.type === CardType.BUILD_ARMY) bonus += 6;
+      if (card.type === CardType.LAND_BATTLE) bonus += 8;
+    } else if (activeChain === 1) {
+      if (card.type === CardType.LAND_BATTLE) bonus += 4;
     }
   }
 
-  // --- Japan: response combo detection ---
-  if (country === Country.JAPAN && card.type === CardType.RESPONSE) {
+  // --- Japan: response-based combo engine ---
+  // Japan's power comes from response cards that trigger off battles/builds:
+  // - Destroyer Transport: sea battle → build 1-2 armies adjacent
+  // - SNLF: build navy → build 1-2 armies adjacent
+  // - Surprise Attack: sea battle → extra sea + land battle
+  // - China Offensive: battle China → build army + extra battle
+  // - Banzai Charge: land battle → extra adjacent land battle
+  // Response cards should be played BEFORE the triggers they combo with.
+  if (country === Country.JAPAN) {
     const hand = state.countries[country].hand;
-    const hasBuildNavy = hand.some((c) => c.type === CardType.BUILD_NAVY);
-    const hasSeaBattle = hand.some((c) => c.type === CardType.SEA_BATTLE);
-    if (hasBuildNavy || hasSeaBattle) bonus += 8;
-  }
-  if (country === Country.JAPAN &&
-      (card.type === CardType.BUILD_NAVY || card.type === CardType.SEA_BATTLE)) {
-    const responseCount = state.countries[country].responseCards.length;
-    if (responseCount > 0) bonus += responseCount * 3;
+    const activeResponses = state.countries[country].responseCards;
+    const activeResponseIds = new Set(activeResponses.map((c) => c.id));
+
+    if (card.type === CardType.RESPONSE) {
+      const hasBuildNavy = hand.some((c) => c.type === CardType.BUILD_NAVY);
+      const hasSeaBattle = hand.some((c) => c.type === CardType.SEA_BATTLE);
+      const hasLandBattle = hand.some((c) => c.type === CardType.LAND_BATTLE);
+
+      // Build-enabling responses (Destroyer Transport, SNLF) are extremely high value
+      const isBuildResponse = card.effects?.some((e) =>
+        e.type === 'BUILD_ARMY' || e.type === 'RECRUIT_ARMY' || e.type === 'BUILD_NAVY' || e.type === 'RECRUIT_NAVY'
+      );
+      if (isBuildResponse) {
+        bonus += 12;
+        if (hasBuildNavy || hasSeaBattle) bonus += 10;  // have the trigger in hand
+      }
+
+      // Battle-extending responses (Surprise Attack, Banzai Charge, China Offensive)
+      const isBattleResponse = card.effects?.some((e) =>
+        e.type === 'ADDITIONAL_BATTLE' || e.type === 'SEA_BATTLE' || e.type === 'LAND_BATTLE' || e.type === 'BUILD_AFTER_BATTLE'
+      );
+      if (isBattleResponse) {
+        bonus += 8;
+        if (hasSeaBattle || hasLandBattle) bonus += 6;
+      }
+
+      // Responses should be played early to get maximum triggers over the game
+      if (isEarly) bonus += 8;
+      else if (isMid) bonus += 4;
+    }
+
+    // When Japan has key responses active, boost the cards that trigger them
+    if (card.type === CardType.BUILD_NAVY) {
+      // SNLF triggers off navy builds → build armies adjacent
+      if (activeResponseIds.has('jpn_snlf')) bonus += 12;
+    }
+    if (card.type === CardType.SEA_BATTLE) {
+      // Destroyer Transport triggers off sea battles → build armies
+      if (activeResponseIds.has('jpn_destroyer_transport')) bonus += 12;
+      // Surprise Attack gives extra battles
+      if (activeResponseIds.has('jpn_surprise_attack')) bonus += 8;
+    }
+    if (card.type === CardType.LAND_BATTLE) {
+      // Banzai Charge and China Offensive trigger off land battles
+      if (activeResponseIds.has('jpn_banzai_charge')) bonus += 8;
+      if (activeResponseIds.has('jpn_china_offensive')) bonus += 8;
+    }
+    // General synergy: more active responses = more value from triggers
+    if (card.type === CardType.BUILD_NAVY || card.type === CardType.SEA_BATTLE) {
+      if (activeResponses.length > 0) bonus += activeResponses.length * 3;
+    }
   }
 
-  // --- US: round-dependent Pacific vs Europe shift ---
+  // --- US: status-based force multiplier engine ---
+  // USA's power comes from status cards that turn every build/battle into multiple actions:
+  // - Aircraft Carriers: sea battle → build navy in battled space
+  // - Amphibious Landings: land battle near navy → build army in battled space
+  // - Superior Shipyards: build navy → build another navy
+  // - Wartime Production: build army → build another army
+  // - Flying Fortresses: EW cards discard +2 extra
+  // Getting these status cards down early multiplies every future action.
   if (country === Country.USA) {
+    const activeStatusIds = new Set(state.countries[country].statusCards.map((c) => c.id));
+    const hand = state.countries[country].hand;
+
+    // Force-multiplier status cards get a big bonus
+    const forceMultipliers = [
+      'usa_aircraft_carriers', 'usa_amphibious_landings',
+      'usa_superior_shipyards', 'usa_wartime_production'
+    ];
+    if (card.type === CardType.STATUS && forceMultipliers.includes(card.id)) {
+      bonus += 14;
+      if (isEarly) bonus += 10;
+      else if (isMid) bonus += 5;
+    }
+    // Flying Fortresses boosts EW — valuable if USA has EW cards in hand/deck
+    if (card.id === 'usa_flying_fortresses') {
+      const hasEW = hand.some((c) => c.type === CardType.ECONOMIC_WARFARE);
+      bonus += hasEW ? 12 : 6;
+    }
+
+    // When force-multiplier statuses are active, boost their triggers
+    if (card.type === CardType.SEA_BATTLE) {
+      if (activeStatusIds.has('usa_aircraft_carriers')) bonus += 10;  // battle → build navy
+    }
+    if (card.type === CardType.LAND_BATTLE) {
+      if (activeStatusIds.has('usa_amphibious_landings')) bonus += 10;  // battle → build army
+    }
+    if (card.type === CardType.BUILD_NAVY) {
+      if (activeStatusIds.has('usa_superior_shipyards')) bonus += 8;  // build → build another
+    }
+    if (card.type === CardType.BUILD_ARMY) {
+      if (activeStatusIds.has('usa_wartime_production')) bonus += 8;  // build → build another
+    }
+    if (card.type === CardType.ECONOMIC_WARFARE) {
+      if (activeStatusIds.has('usa_flying_fortresses')) bonus += 6;  // EW hits harder
+    }
+
+    // Round-dependent Pacific vs Europe shift
     const hasPacificBuild = card.effects?.some((e) =>
       (e.type === 'BUILD_NAVY' || e.type === 'BUILD_ARMY' || e.type === 'RECRUIT_ARMY') &&
       e.where?.some((w) => US_PACIFIC_SPACES.has(w))
