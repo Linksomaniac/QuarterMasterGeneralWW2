@@ -139,6 +139,7 @@ const RAW_ADJACENCIES: [string, string][] = [
   ['hawaii', 'north_pacific'],
   ['brazil', 'south_atlantic'],
   ['brazil', 'southeast_pacific'],
+  ['brazil', 'southern_ocean'],
 
   // Europe
   ['iceland', 'north_atlantic'],
@@ -166,6 +167,8 @@ const RAW_ADJACENCIES: [string, string][] = [
   ['north_africa', 'north_sea'],
   ['africa', 'south_atlantic'],
   ['africa', 'southern_ocean'],
+  ['africa', 'bay_of_bengal'],
+  ['africa', 'indian_ocean'],
   ['madagascar', 'indian_ocean'],
   ['madagascar', 'bay_of_bengal'],
 
@@ -292,8 +295,8 @@ export function areAdjacentForTeam(
     ) {
       const straitStatus = straitStatuses.find((s) => s.straitSpaceId === space.id);
       if (!straitStatus) continue;
-      if (isAxisTeam && straitStatus.axisControlled) return true;
-      if (!isAxisTeam && !straitStatus.axisControlled) return true;
+      const open = isAxisTeam ? straitStatus.axisControlled : !straitStatus.axisControlled;
+      if (open) return true;
     }
   }
   return false;
