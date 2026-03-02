@@ -1092,14 +1092,27 @@ export function aiResolvePendingAction(
 
     case 'SELECT_DISCARD':
     case 'CONFIRM_DISCARD_STEP': {
+      // Smart discard: evaluate each card and discard ones that are dead weight.
+      // Low-score cards are useless (no valid targets, no pieces to build, etc.)
+      // and should be traded for fresh draws from the deck.
       const hand = state.countries[country].hand;
-      if (hand.length <= 7) return [];
+      if (hand.length === 0) return [];
       const scored = hand.map((c, i) => ({ score: scoreCard(c, state, difficulty), index: i }));
       scored.sort((a, b) => a.score - b.score);
-      const toDiscard = difficulty === 'easy'
-        ? Math.min(2, hand.length - 7)
-        : Math.min(3, hand.length - 7);
-      return scored.slice(0, Math.max(0, toDiscard)).map((s) => s.index);
+
+      // Threshold below which a card is considered not worth keeping.
+      // Harder AI is pickier about card quality.
+      const discardThreshold = difficulty === 'easy' ? -3
+        : difficulty === 'medium' ? 0
+        : 3;
+
+      const toDiscard: number[] = [];
+      for (const s of scored) {
+        if (s.score < discardThreshold) {
+          toDiscard.push(s.index);
+        }
+      }
+      return toDiscard;
     }
 
     case 'SELECT_RESPONSE_TARGET':
