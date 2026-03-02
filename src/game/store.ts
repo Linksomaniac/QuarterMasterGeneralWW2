@@ -2234,7 +2234,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
         set({ selectedDiscards: next });
       }
     } else {
-      set({ selectedDiscards: new Set([cardId]) });
+      const next = new Set(sd);
+      next.add(cardId);
+      set({ selectedDiscards: next });
     }
   },
 
@@ -2261,11 +2263,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
     ns = drawCards(country, ns);
     if (discarded.length > 0) {
       ns = addLogEntry(ns, country, `Discarded ${discarded.length} card(s)`);
-    } else {
-      const team = getTeam(country);
-      if (team === Team.AXIS) ns = { ...ns, axisVP: ns.axisVP - 1 };
-      else ns = { ...ns, alliesVP: ns.alliesVP - 1 };
-      ns = addLogEntry(ns, country, `No card discarded — lost 1 VP`);
     }
 
     if (discarded.length > 0 && getTeam(country) === Team.ALLIES && country !== Country.USA) {

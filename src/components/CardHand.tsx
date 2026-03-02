@@ -1633,13 +1633,13 @@ export default function CardHand() {
         {isDiscardStep && (
           <div className="flex items-center gap-3">
             <span className="text-xs text-gray-400">
-              Select up to 1 card to discard (optional), then confirm
+              Select cards to discard (optional), then confirm
             </span>
             <button
               onClick={handleConfirmDiscard}
               className="px-4 py-1.5 rounded bg-board-supply text-gray-900 text-sm font-bold hover:bg-yellow-500 transition-colors"
             >
-              {selectedDiscards.size === 0 ? 'Skip Discard' : 'Discard 1 Card'}
+              {selectedDiscards.size === 0 ? 'Skip Discard' : `Discard ${selectedDiscards.size} Card${selectedDiscards.size > 1 ? 's' : ''}`}
             </button>
           </div>
         )}
