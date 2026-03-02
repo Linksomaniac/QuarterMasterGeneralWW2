@@ -575,8 +575,10 @@ function scoreSpace(spaceId: string, country: Country, state: GameState, vpTarge
   const enemyHomeSpaces = TURN_ORDER
     .filter((c) => getTeam(c) === enemyTeam)
     .map((c) => HOME_SPACES[c]);
-  if (enemyHomeSpaces.includes(spaceId)) score += 15;
-  if (spaceId === HOME_SPACES[country]) score += 20;
+  // Controlling an enemy home space is the highest-value target — it zeros
+  // their VP and is devastating strategically (e.g. taking Moscow, London).
+  if (enemyHomeSpaces.includes(spaceId)) score += 30;
+  if (spaceId === HOME_SPACES[country]) score += 25;
 
   const distToSupply = bfsDistanceToNearestSupply(spaceId, country, state);
   if (distToSupply <= 5) {
@@ -871,10 +873,32 @@ function scoreCard(
         landAllPieces.some((p) => p.spaceId === t && p.type === 'army' && getTeam(p.country) === landEnemyTeam)
       );
       if (targets.length === 0) return -3;
-      let score = 8 + Math.max(...targets.map((t) => scoreSpace(t, country, state)));
+      let score = 12 + Math.max(...targets.map((t) => scoreSpace(t, country, state)));
       if (isHard) score -= getResponsePenaltyForTargets(targets, country, state);
-      if (isHard && isEarly) score -= 4;
-      score += posBoost * 0.5;
+
+      // Status cards that trigger off land battles make battling much more
+      // valuable — e.g. Blitzkrieg (build after battle), Bias for Action
+      // (extra battle after build), Dive Bombers (extra battle), Amphibious
+      // Landings (build army if adjacent to navy). Battle effectively
+      // becomes battle + build + battle chain.
+      const activeStatuses = state.countries[country].statusCards;
+      const hasBuildAfterLandBattle = activeStatuses.some((c) =>
+        c.effects.some((e) => e.type === 'BUILD_AFTER_BATTLE' && (e.condition === 'land_battle' || e.condition === 'adjacent_to_us_navy'))
+      );
+      const hasAdditionalLandBattle = activeStatuses.some((c) =>
+        c.effects.some((e) => e.type === 'ADDITIONAL_BATTLE')
+      );
+      if (hasBuildAfterLandBattle) score += 15;  // battle = battle + free build
+      if (hasAdditionalLandBattle) score += 10;  // battle = battle + extra battle
+
+      // Battling on enemy home spaces is critical — zeros their VP score
+      const landEnemyHomes = TURN_ORDER
+        .filter((c) => getTeam(c) === landEnemyTeam)
+        .map((c) => HOME_SPACES[c]);
+      const canHitHome = targets.some((t) => landEnemyHomes.includes(t));
+      if (canHitHome) score += 20;
+
+      score += posBoost;
       return score + countryBonus;
     }
     case CardType.SEA_BATTLE: {
@@ -886,10 +910,25 @@ function scoreCard(
         seaAllPieces.some((p) => p.spaceId === t && p.type === 'navy' && getTeam(p.country) === seaEnemyTeam)
       );
       if (targets.length === 0) return -3;
-      let score = 7 + targets.length;
+      let score = 10 + targets.length;
       if (isHard) score -= getResponsePenaltyForTargets(targets, country, state);
-      if (isHard && isEarly) score -= 4;
-      score += posBoost * 0.5;
+
+      // Status cards that trigger off sea battles (Aircraft Carriers = build
+      // navy after battle, Destroyer Transport = build armies adjacent)
+      const seaActiveStatuses = state.countries[country].statusCards;
+      const hasBuildAfterSeaBattle = seaActiveStatuses.some((c) =>
+        c.effects.some((e) => e.type === 'BUILD_AFTER_BATTLE' && e.condition === 'sea_battle')
+      );
+      if (hasBuildAfterSeaBattle) score += 15;  // battle = battle + free build
+
+      // Response cards that trigger off sea battles (Destroyer Transport, Surprise Attack)
+      const seaActiveResponses = state.countries[country].responseCards;
+      const hasBuildOnSeaBattle = seaActiveResponses.some((c) =>
+        c.effects.some((e) => (e.type === 'BUILD_ARMY' || e.type === 'SEA_BATTLE' || e.type === 'LAND_BATTLE'))
+      );
+      if (hasBuildOnSeaBattle) score += 12;
+
+      score += posBoost;
       return score + countryBonus;
     }
     case CardType.STATUS: {
