@@ -2456,6 +2456,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   },
 
   executeAiTurn: async () => {
+   try {
     let s = gs(get());
     const country = getCurrentCountry(s);
     const cState = s.countries[country];
@@ -2659,8 +2660,27 @@ export const useGameStore = create<GameStore>((set, get) => ({
               maybeSetOrAutoResolveEventSpace(contResult.pendingAction, contResult.newState, set, get);
               return;
             }
-            set({ ...ns, pendingAction: contResult.pendingAction });
-            return;
+            // For AI countries, auto-resolve any remaining pending action so the
+            // game never hangs waiting for human input on an AI turn.
+            if (!ns.countries[country].isHuman) {
+              const subRes = aiResolvePendingAction(ns, contResult.pendingAction, diff);
+              if (typeof subRes === 'string' && subRes) {
+                if (contResult.pendingAction.type === 'SELECT_BUILD_LOCATION') {
+                  ns = resolveBuildAction(subRes, contResult.pendingAction.pieceType, country, ns);
+                  ns = addLogEntry(ns, country, `Built ${contResult.pendingAction.pieceType} in ${subRes.replace(/_/g, ' ')}`);
+                } else if (contResult.pendingAction.type === 'SELECT_BATTLE_TARGET') {
+                  ns = resolveBattleAction(subRes, country, ns);
+                  ns = addLogEntry(ns, country, `Battled in ${getSpace(subRes)?.name ?? subRes.replace(/_/g, ' ')}`);
+                } else if (contResult.pendingAction.type === 'SELECT_RECRUIT_LOCATION') {
+                  ns = resolveBuildAction(subRes, contResult.pendingAction.pieceType, contResult.pendingAction.recruitCountry, ns);
+                  ns = addLogEntry(ns, country, `Recruited ${contResult.pendingAction.pieceType} in ${subRes.replace(/_/g, ' ')}`);
+                }
+              }
+              // Fall through to supply step below
+            } else {
+              set({ ...ns, pendingAction: contResult.pendingAction });
+              return;
+            }
           }
           if (contResult.eventBuildInfo) {
             if (handleEventBuildTrigger(contResult.eventBuildInfo, ns, set, get)) return;
@@ -2967,8 +2987,28 @@ export const useGameStore = create<GameStore>((set, get) => ({
                     maybeSetOrAutoResolveEventSpace(result.pendingAction, result.newState, set, get);
                     return;
                   }
-                  set({ ...ns, pendingAction: result.pendingAction });
-                  return;
+                  // For AI countries, auto-resolve any remaining pending action so the
+                  // game never hangs waiting for human input on an AI turn.
+                  if (!ns.countries[rdCountry].isHuman) {
+                    const subRes = aiResolvePendingAction(ns, result.pendingAction, diff);
+                    if (typeof subRes === 'string' && subRes) {
+                      if (result.pendingAction.type === 'SELECT_BUILD_LOCATION') {
+                        ns = resolveBuildAction(subRes, result.pendingAction.pieceType, rdCountry, ns);
+                        ns = addLogEntry(ns, rdCountry, `Built ${result.pendingAction.pieceType} in ${subRes.replace(/_/g, ' ')}`);
+                      } else if (result.pendingAction.type === 'SELECT_BATTLE_TARGET') {
+                        ns = resolveBattleAction(subRes, rdCountry, ns);
+                        ns = addLogEntry(ns, rdCountry, `Battled in ${getSpace(subRes)?.name ?? subRes.replace(/_/g, ' ')}`);
+                      } else if (result.pendingAction.type === 'SELECT_RECRUIT_LOCATION') {
+                        const rCountry = result.pendingAction.recruitCountry ?? rdCountry;
+                        ns = resolveBuildAction(subRes, result.pendingAction.pieceType, rCountry, ns);
+                        ns = addLogEntry(ns, rdCountry, `Recruited ${result.pendingAction.pieceType} in ${subRes.replace(/_/g, ' ')}`);
+                      }
+                    }
+                    // Fall through to proceedAfterAction / supply step below
+                  } else {
+                    set({ ...ns, pendingAction: result.pendingAction });
+                    return;
+                  }
                 }
                 if (result.eventBuildInfo) {
                   if (handleEventBuildTrigger(result.eventBuildInfo, ns, set, get)) return;
@@ -3076,6 +3116,15 @@ export const useGameStore = create<GameStore>((set, get) => ({
     }
 
     goToSupplyStep(ns, set, get);
+   } catch (err) {
+    console.error('[AI Turn Error]', err);
+    // Safety: force-advance to supply step so the game never hangs
+    const recovery = gs(get());
+    const country = getCurrentCountry(recovery);
+    const logged = addLogEntry(recovery, country, 'AI encountered an error — skipping turn');
+    set({ ...logged, pendingAction: null, phase: GamePhase.SUPPLY_STEP, actionContext: undefined, selectedCard: null });
+    setTimeout(() => get().advanceToNextPhase(), 400);
+   }
   },
 
   respondToOpportunity: (accept) => {
