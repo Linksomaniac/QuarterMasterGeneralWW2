@@ -5,6 +5,7 @@ import {
   COUNTRY_COLORS,
   COUNTRY_TEXT_ON_BG,
   COUNTRY_NAMES,
+  COUNTRY_SHORT,
   Country,
   GamePhase,
   TURN_ORDER,
@@ -1131,6 +1132,37 @@ function RedeployPrompt() {
   );
 }
 
+function BattlePiecePrompt() {
+  const state = useGameStore();
+  const selectBattlePiece = useGameStore((s) => s.selectBattlePiece);
+  const pa = state.pendingAction;
+  if (!pa || pa.type !== 'SELECT_BATTLE_PIECE') return null;
+
+  return (
+    <div className="flex flex-col gap-2">
+      <span className="text-xs text-yellow-400">
+        Multiple enemy pieces in <strong>{pa.spaceName}</strong> — choose which to eliminate:
+      </span>
+      <div className="flex gap-2 flex-wrap">
+        {pa.eligiblePieces.map((p) => (
+          <button
+            key={p.pieceId}
+            onClick={() => selectBattlePiece(p.pieceId)}
+            className="px-3 py-2 rounded text-xs border border-red-500 bg-red-500/20 text-red-300 hover:bg-red-500/40 transition-colors cursor-pointer text-left"
+            style={{ borderColor: COUNTRY_COLORS[p.country] }}
+          >
+            <div className="font-bold" style={{ color: COUNTRY_COLORS[p.country] }}>
+              {COUNTRY_SHORT[p.country]}
+            </div>
+            <div className="text-[10px] opacity-80">{COUNTRY_NAMES[p.country]}</div>
+            <div className="text-[10px] opacity-70">{p.pieceType === 'army' ? '⚔ Army' : '⚓ Navy'}</div>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function MovePiecePrompt() {
   const state = useGameStore();
   const selectMovePiece = useGameStore((s) => s.selectMovePiece);
@@ -1676,7 +1708,11 @@ export default function CardHand() {
           <MoveDestinationPrompt />
         )}
 
-        {state.pendingAction && state.pendingAction.type !== 'RESPONSE_OPPORTUNITY' && state.pendingAction.type !== 'SELECT_EW_TARGET' && state.pendingAction.type !== 'SELECT_LEND_LEASE_TARGET' && state.pendingAction.type !== 'SELECT_EVENT_CHOICE' && state.pendingAction.type !== 'SELECT_FROM_DISCARD' && state.pendingAction.type !== 'REORDER_CARDS' && state.pendingAction.type !== 'SELECT_ROSIE_CARDS' && state.pendingAction.type !== 'SELECT_RECRUIT_LOCATION' && state.pendingAction.type !== 'SELECT_EVENT_SPACE' && state.pendingAction.type !== 'SELECT_MALTA_CHOICE' && state.pendingAction.type !== 'SELECT_HAND_DISCARD' && state.pendingAction.type !== 'SELECT_OFFENSIVE_HAND_DISCARD' && state.pendingAction.type !== 'SELECT_PIECE_TO_REDEPLOY' && state.pendingAction.type !== 'SELECT_RECRUIT_COUNTRY' && state.pendingAction.type !== 'RATIONING_OPPORTUNITY' && state.pendingAction.type !== 'ENIGMA_OPPORTUNITY' && state.pendingAction.type !== 'SELECT_MOVE_PIECE' && state.pendingAction.type !== 'SELECT_MOVE_DESTINATION' && state.pendingAction.type !== 'BEGINNING_TURN_RESPONSE' && (
+        {state.pendingAction && state.pendingAction.type === 'SELECT_BATTLE_PIECE' && (
+          <BattlePiecePrompt />
+        )}
+
+        {state.pendingAction && state.pendingAction.type !== 'RESPONSE_OPPORTUNITY' && state.pendingAction.type !== 'SELECT_EW_TARGET' && state.pendingAction.type !== 'SELECT_LEND_LEASE_TARGET' && state.pendingAction.type !== 'SELECT_EVENT_CHOICE' && state.pendingAction.type !== 'SELECT_FROM_DISCARD' && state.pendingAction.type !== 'REORDER_CARDS' && state.pendingAction.type !== 'SELECT_ROSIE_CARDS' && state.pendingAction.type !== 'SELECT_RECRUIT_LOCATION' && state.pendingAction.type !== 'SELECT_EVENT_SPACE' && state.pendingAction.type !== 'SELECT_MALTA_CHOICE' && state.pendingAction.type !== 'SELECT_HAND_DISCARD' && state.pendingAction.type !== 'SELECT_OFFENSIVE_HAND_DISCARD' && state.pendingAction.type !== 'SELECT_PIECE_TO_REDEPLOY' && state.pendingAction.type !== 'SELECT_RECRUIT_COUNTRY' && state.pendingAction.type !== 'RATIONING_OPPORTUNITY' && state.pendingAction.type !== 'ENIGMA_OPPORTUNITY' && state.pendingAction.type !== 'SELECT_MOVE_PIECE' && state.pendingAction.type !== 'SELECT_MOVE_DESTINATION' && state.pendingAction.type !== 'BEGINNING_TURN_RESPONSE' && state.pendingAction.type !== 'SELECT_BATTLE_PIECE' && (
           <span className="text-xs text-yellow-400 animate-pulse">
             {state.pendingAction.type === 'SELECT_BUILD_LOCATION'
               ? `Click a highlighted space to build ${state.pendingAction.pieceType}`

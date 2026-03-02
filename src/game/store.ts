@@ -113,6 +113,7 @@ import {
   pickWorstPieceToRemove,
   aiChooseEventEffect,
   aiShouldTriggerDefenseOfMotherland,
+  aiBestPieceToEliminate,
 } from './ai';
 
 export interface PlayerConfig {
@@ -176,6 +177,7 @@ interface GameStoreActions {
   confirmRedeploy: (pieceId: string) => void;
   selectMovePiece: (pieceId: string) => void;
   skipMovePieces: () => void;
+  selectBattlePiece: (pieceId: string) => void;
 }
 
 interface GameStoreState extends GameState {
@@ -1517,7 +1519,7 @@ function proceedWithElimination(
 
   const eliminatedType = targetPiece?.type;
   const eliminatedCountry = targetPiece?.country;
-  const ns = resolveBattleAction(battleSpaceId, attackingCountry, state);
+  const ns = resolveBattleAction(battleSpaceId, attackingCountry, state, targetPiece?.id);
   continueAfterElimination(
     ns, battleSpaceId, attackingCountry, eliminatedType, eliminatedCountry, set, get
   );
@@ -1912,6 +1914,14 @@ export const useGameStore = create<GameStore>((set, get) => ({
     }
 
     if (pa.type === 'SELECT_EVENT_SPACE' && pa.validSpaces.includes(spaceId)) {
+      // Safety guard: the space-picker should only be resolved by the human player
+      // who owns this action.  If playingCountry is an AI (e.g. a SELECT_EVENT_SPACE
+      // that leaked into the store before maybeSetOrAutoResolveEventSpace could clear
+      // it), ignore the human click and let the AI auto-resolve instead.
+      if (!s.countries[pa.playingCountry].isHuman) {
+        maybeSetOrAutoResolveEventSpace(pa, s, set, get);
+        return;
+      }
       let ns = resolveEventEffectAtSpace(pa.effectAction, spaceId, pa.effectCountry, pa.playingCountry, s, pa.eventCardName);
 
       const isBuildAction = pa.effectAction === 'build_army' || pa.effectAction === 'build_navy'
@@ -2017,7 +2027,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       const spaceName = getSpace(spaceId)?.name ?? spaceId.replace(/_/g, ' ');
       const allPieces = getAllPieces(s);
       const enemyTeam = getEnemyTeam(country);
-      const targetPiece = allPieces.find(
+      const enemyPieces = allPieces.filter(
         (p) => p.spaceId === spaceId && getTeam(p.country) === enemyTeam
       );
 
@@ -2040,6 +2050,71 @@ export const useGameStore = create<GameStore>((set, get) => ({
       });
 
       let ns = addLogEntry(s, country, `Battled in ${spaceName}`);
+
+      // Check if attacker has "remove all in space" status — if so, all pieces
+      // are removed automatically and there is nothing to choose.
+      const hasRemoveAll = s.countries[country].statusCards.some((c) =>
+        c.effects.some((e) => e.type === 'ELIMINATE_ARMY' && e.condition === 'all_in_space')
+      );
+
+      // When multiple enemy pieces from different countries share the space and
+      // the attacker does NOT have a "remove all" ability, ask the human to
+      // choose which piece to eliminate (or let the AI decide).
+      if (enemyPieces.length > 1 && !hasRemoveAll) {
+        if (s.countries[country].isHuman) {
+          // Pause and show the piece picker — selectBattlePiece() resolves it.
+          set({
+            ...ns,
+            pendingAction: {
+              type: 'SELECT_BATTLE_PIECE',
+              battleType: pa.battleType,
+              battleSpaceId: spaceId,
+              spaceName,
+              attackingCountry: country,
+              eligiblePieces: enemyPieces.map((p) => ({
+                pieceId: p.id,
+                country: p.country,
+                pieceType: p.type,
+              })),
+            },
+          });
+          return;
+        } else {
+          // AI picks the most valuable enemy piece to eliminate.
+          const bestPiece = aiBestPieceToEliminate(enemyPieces, s);
+          const responses = findProtectionResponses(spaceId, bestPiece.country, ns, bestPiece.type, bestPiece.id);
+          if (responses.length > 0) {
+            const resp = responses[0];
+            set({
+              ...ns,
+              phase: GamePhase.AWAITING_RESPONSE,
+              pendingAction: {
+                type: 'RESPONSE_OPPORTUNITY',
+                responseCountry: resp.country,
+                responseCardId: resp.card.id,
+                responseCardName: resp.card.name,
+                battleSpaceId: spaceId,
+                eliminatedPieceId: bestPiece.id,
+                eliminatedPieceCountry: bestPiece.country,
+                attackingCountry: country,
+              },
+            });
+            if (!ns.countries[resp.country].isHuman) {
+              setTimeout(() => {
+                get().respondToOpportunity(
+                  aiShouldActivateProtection(gs(get()), resp.card, spaceId, resp.country)
+                );
+              }, AI_DELAY);
+            }
+            return;
+          }
+          proceedWithElimination(spaceId, country, bestPiece, ns, set, get);
+          return;
+        }
+      }
+
+      // Single enemy piece (or hasRemoveAll) — proceed as before.
+      const targetPiece = enemyPieces[0];
 
       if (targetPiece) {
         const responses = findProtectionResponses(spaceId, targetPiece.country, ns, targetPiece.type, targetPiece.id);
@@ -2072,6 +2147,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
       }
 
       proceedWithElimination(spaceId, country, targetPiece, ns, set, get);
+    }
+
+    if (pa.type === 'SELECT_BATTLE_PIECE' && pa.attackingCountry === country) {
+      // Human clicked a space while the piece picker is open — ignore map clicks
+      // in this state (piece selection is done via the CardHand UI buttons).
+      return;
     }
   },
 
@@ -2507,11 +2588,13 @@ export const useGameStore = create<GameStore>((set, get) => ({
           const contResult = processEventEffects(pendingAction.remainingEffects, pendingAction.eventCardName, pendingAction.playingCountry, ns);
           ns = contResult.newState;
           if (contResult.pendingAction) {
-            set({ ...ns, pendingAction: contResult.pendingAction });
-            const nextRes = aiResolvePendingAction(ns, contResult.pendingAction, diff);
-            if (typeof nextRes === 'string' && nextRes) {
-              setTimeout(() => get().handleSpaceClick(nextRes), AI_DELAY);
+            // Route SELECT_EVENT_SPACE through the human-vs-AI gate so AI countries
+            // never briefly expose the space-picker UI to the human player.
+            if (contResult.pendingAction.type === 'SELECT_EVENT_SPACE') {
+              maybeSetOrAutoResolveEventSpace(contResult.pendingAction, contResult.newState, set, get);
+              return;
             }
+            set({ ...ns, pendingAction: contResult.pendingAction });
             return;
           }
           if (contResult.eventBuildInfo) {
@@ -2812,6 +2895,13 @@ export const useGameStore = create<GameStore>((set, get) => ({
                 const result = processEventEffects(allEffects, pendingAction.eventCardName, pendingAction.playingCountry, ns);
                 ns = result.newState;
                 if (result.pendingAction) {
+                  // Route SELECT_EVENT_SPACE through maybeSetOrAutoResolveEventSpace so AI
+                  // countries (e.g. USA when Patton Advances triggers a redeploy) never hand
+                  // the space-picker UI to the wrong (human) player.
+                  if (result.pendingAction.type === 'SELECT_EVENT_SPACE') {
+                    maybeSetOrAutoResolveEventSpace(result.pendingAction, result.newState, set, get);
+                    return;
+                  }
                   set({ ...ns, pendingAction: result.pendingAction });
                   return;
                 }
@@ -3985,6 +4075,53 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
     set({ ...ns, pendingAction: null });
     goToSupplyStep(ns, set, get);
+  },
+
+  selectBattlePiece: (pieceId: string) => {
+    const s = gs(get());
+    const pa = s.pendingAction;
+    if (!pa || pa.type !== 'SELECT_BATTLE_PIECE') return;
+
+    const allPieces = getAllPieces(s);
+    const targetPiece = allPieces.find((p) => p.id === pieceId);
+    if (!targetPiece) return;
+
+    const { battleSpaceId, attackingCountry } = pa;
+
+    // Clear the pending action before proceeding
+    let ns: GameState = { ...s, pendingAction: null };
+
+    // Check if the chosen piece is protected by a response card
+    const responses = findProtectionResponses(
+      battleSpaceId, targetPiece.country, ns, targetPiece.type, targetPiece.id
+    );
+    if (responses.length > 0) {
+      const resp = responses[0];
+      set({
+        ...ns,
+        phase: GamePhase.AWAITING_RESPONSE,
+        pendingAction: {
+          type: 'RESPONSE_OPPORTUNITY',
+          responseCountry: resp.country,
+          responseCardId: resp.card.id,
+          responseCardName: resp.card.name,
+          battleSpaceId,
+          eliminatedPieceId: targetPiece.id,
+          eliminatedPieceCountry: targetPiece.country,
+          attackingCountry,
+        },
+      });
+      if (!ns.countries[resp.country].isHuman) {
+        setTimeout(() => {
+          get().respondToOpportunity(
+            aiShouldActivateProtection(gs(get()), resp.card, battleSpaceId, resp.country)
+          );
+        }, AI_DELAY);
+      }
+      return;
+    }
+
+    proceedWithElimination(battleSpaceId, attackingCountry, targetPiece, ns, set, get);
   },
 
   confirmRecruitCountry: (chosenCountry: Country) => {

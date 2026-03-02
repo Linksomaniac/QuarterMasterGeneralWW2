@@ -3,6 +3,7 @@ import {
   CardEffectType,
   CardType,
   Country,
+  COUNTRY_PIECES,
   GameState,
   PendingAction,
   Piece,
@@ -805,6 +806,44 @@ export function pickWorstPieceToRemove(
     }
   }
   return worstId;
+}
+
+// ---------------------------------------------------------------------------
+// aiBestPieceToEliminate – when an AI attacker faces multiple enemy pieces in
+// the same space, pick the one that is most costly for the enemy to lose.
+// Higher priority goes to pieces with the fewest reserves (harder to replace).
+// ---------------------------------------------------------------------------
+export function aiBestPieceToEliminate(pieces: Piece[], state: GameState): Piece {
+  if (pieces.length === 0) throw new Error('aiBestPieceToEliminate: empty list');
+  if (pieces.length === 1) return pieces[0];
+
+  let bestPiece = pieces[0];
+  let bestScore = -Infinity;
+
+  for (const p of pieces) {
+    let score = 0;
+    const cs = state.countries[p.country];
+
+    // Fewer reserves of this piece type → harder for the enemy to replace → higher value
+    const totalOfType = cs.piecesOnBoard.filter((pb) => pb.type === p.type).length;
+    const maxOfType =
+      p.type === 'army' ? COUNTRY_PIECES[p.country].armies : COUNTRY_PIECES[p.country].navies;
+    const reserve = maxOfType - totalOfType;
+    score -= reserve; // lower reserve → less penalty → higher score
+
+    // Slight bonus for navies (generally rarer and harder to build)
+    if (p.type === 'navy') score += 1;
+
+    // Prefer pieces from countries with more pieces on board (more strategically active)
+    score += cs.piecesOnBoard.length;
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestPiece = p;
+    }
+  }
+
+  return bestPiece;
 }
 
 export function pickBestBuildLocation(
