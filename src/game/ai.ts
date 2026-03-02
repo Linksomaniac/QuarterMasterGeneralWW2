@@ -960,6 +960,19 @@ function scoreCard(
       const canHitHome = targets.some((t) => landEnemyHomes.includes(t));
       if (canHitHome) score += 20;
 
+      // Defensive value: enemies adjacent to our home or supply spaces must be
+      // eliminated to keep our position safe. E.g. USSR battling in Balkans
+      // from Ukraine to keep Ukraine safe.
+      const myPieces = state.countries[country].piecesOnBoard;
+      for (const t of targets) {
+        const adjToEnemy = getAdjacentSpaces(t);
+        for (const mp of myPieces) {
+          if (!adjToEnemy.includes(mp.spaceId)) continue;
+          if (mp.spaceId === HOME_SPACES[country]) score += 15;
+          if (getSpace(mp.spaceId)?.isSupplySpace) score += 8;
+        }
+      }
+
       score += posBoost;
       return score + countryBonus;
     }
@@ -989,6 +1002,21 @@ function scoreCard(
         c.effects.some((e) => (e.type === 'BUILD_ARMY' || e.type === 'SEA_BATTLE' || e.type === 'LAND_BATTLE'))
       );
       if (hasBuildOnSeaBattle) score += 12;
+
+      // Defensive value: enemy navies threatening our supply lines or home
+      // adjacency must be cleared. E.g. Japan sea battling to keep Sea of
+      // Japan safe, UK clearing North Sea to protect home.
+      const seaMyPieces = state.countries[country].piecesOnBoard;
+      for (const t of targets) {
+        const seaAdjToEnemy = getAdjacentSpaces(t);
+        for (const mp of seaMyPieces) {
+          if (!seaAdjToEnemy.includes(mp.spaceId)) continue;
+          if (mp.spaceId === HOME_SPACES[country]) score += 15;
+          if (getSpace(mp.spaceId)?.isSupplySpace) score += 8;
+        }
+        // Enemy navy in a sea adjacent to our home is a direct threat
+        if (seaAdjToEnemy.includes(HOME_SPACES[country])) score += 12;
+      }
 
       score += posBoost;
       return score + countryBonus;
@@ -1259,18 +1287,72 @@ export function pickBestBattleTarget(
     }
 
     // Country-specific battle priorities
-    if (country === Country.GERMANY && GERMANY_EAST_CHAIN.has(spaceId)) {
-      score += 10;
+    if (country === Country.GERMANY) {
+      if (GERMANY_EAST_CHAIN.has(spaceId)) score += 10;
+      // Defensive: battle enemies threatening Western Europe (protect supply + home flank)
+      if (spaceId === 'western_europe' || spaceId === 'north_sea') score += 12;
     }
 
     if (country === Country.SOVIET_UNION) {
       const ussrCoreSpaces = ['moscow', 'ukraine', 'russia', 'siberia', 'kazakhstan'];
       if (ussrCoreSpaces.includes(spaceId)) score += 12;
+      // Defensive: battle enemies in spaces adjacent to Moscow or Ukraine
+      const moskowAdj = getAdjacentSpaces('moscow');
+      const ukraineAdj = getAdjacentSpaces('ukraine');
+      if (moskowAdj.includes(spaceId)) score += 15;  // protect Moscow
+      if (ukraineAdj.includes(spaceId)) score += 10;  // protect Ukraine (supply + VP)
+      // Offensive from Ukraine: push enemies out of Balkans/Eastern Europe
+      if (['balkans', 'eastern_europe'].includes(spaceId)) score += 8;
     }
 
-    if (country === Country.JAPAN && getSpace(spaceId)?.type === SpaceType.SEA) {
-      const responseCount = state.countries[country].responseCards.length;
-      if (responseCount > 0) score += responseCount * 5;
+    if (country === Country.JAPAN) {
+      if (getSpace(spaceId)?.type === SpaceType.SEA) {
+        const responseCount = state.countries[country].responseCards.length;
+        if (responseCount > 0) score += responseCount * 5;
+      }
+      // Defensive: protect Sea of Japan (supply route) and home adjacency
+      if (spaceId === 'sea_of_japan' || spaceId === 'north_pacific') score += 15;
+      // Protect China supply space
+      if (spaceId === 'china' || spaceId === 'szechuan') score += 8;
+    }
+
+    if (country === Country.UK) {
+      // Defensive: protect North Sea (critical for UK supply and projecting power)
+      if (spaceId === 'north_sea') score += 15;
+      if (spaceId === 'north_atlantic') score += 10;
+      // Protect India and Australia supply spaces
+      if (spaceId === 'bay_of_bengal' || spaceId === 'indian_ocean') score += 10;
+      // Offensive: clear Western Europe / Mediterranean
+      if (spaceId === 'western_europe') score += 12;
+      if (spaceId === 'mediterranean') score += 8;
+    }
+
+    if (country === Country.USA) {
+      // Offensive: push toward Japan
+      if (spaceId === 'sea_of_japan') score += 18;
+      if (['central_pacific', 'south_china_sea', 'iwo_jima', 'philippines'].includes(spaceId)) score += 10;
+      // Defensive: protect Hawaii and East Pacific supply lines
+      if (spaceId === 'east_pacific' || spaceId === 'hawaii') score += 12;
+    }
+
+    if (country === Country.ITALY) {
+      // Defensive: protect Mediterranean (critical for Italy supply chains)
+      if (spaceId === 'mediterranean') score += 15;
+      // Protect Balkans (VP route)
+      if (spaceId === 'balkans') score += 10;
+      // Offensive: support Germany by clearing North Africa / Middle East
+      if (['north_africa', 'middle_east'].includes(spaceId)) score += 8;
+    }
+
+    // --- Defensive bonus for all countries: battle enemies that threaten
+    // your own key spaces (home, supply spaces you control) ---
+    const myPieces = state.countries[country].piecesOnBoard;
+    const adjToTarget = getAdjacentSpaces(spaceId);
+    for (const myPiece of myPieces) {
+      if (!adjToTarget.includes(myPiece.spaceId)) continue;
+      // Enemy is adjacent to one of our pieces — eliminating protects our position
+      if (myPiece.spaceId === HOME_SPACES[country]) score += 20;  // protect home!
+      if (getSpace(myPiece.spaceId)?.isSupplySpace) score += 10;  // protect supply
     }
 
     if (score > bestScore) {
