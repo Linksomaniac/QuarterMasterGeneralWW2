@@ -2,73 +2,73 @@ import { Country, MapSpace, SpaceType } from './types';
 
 export const SPACES: MapSpace[] = [
   // ─── NORTH AMERICA ───
-  { id: 'eastern_us', name: 'Eastern United States', type: SpaceType.LAND, isSupplySpace: true, homeCountry: Country.USA, x: 370, y: 340 },
-  { id: 'western_us', name: 'Western United States', type: SpaceType.LAND, isSupplySpace: true, x: 1825, y: 330 },
-  { id: 'pacific_northwest', name: 'Pacific Northwest', type: SpaceType.LAND, isSupplySpace: false, x: 1820, y: 200 },
-  { id: 'canada', name: 'Canada', type: SpaceType.LAND, isSupplySpace: false, x: 365, y: 200 },
-  { id: 'hawaii', name: 'Hawaii', type: SpaceType.LAND, isSupplySpace: false, x: 1778, y: 512 },
+  { id: 'eastern_us', name: 'Eastern United States', type: SpaceType.LAND, isSupplySpace: true, homeCountry: Country.USA, x: 76, y: 291 },
+  { id: 'western_us', name: 'Western United States', type: SpaceType.LAND, isSupplySpace: true, x: 1900, y: 298 },
+  { id: 'pacific_northwest', name: 'Pacific Northwest', type: SpaceType.LAND, isSupplySpace: false, x: 1891, y: 121 },
+  { id: 'canada', name: 'Canada', type: SpaceType.LAND, isSupplySpace: false, x: 80, y: 120 },
+  { id: 'hawaii', name: 'Hawaii', type: SpaceType.LAND, isSupplySpace: false, x: 1714, y: 439 },
 
   // ─── SOUTH AMERICA ───
-  { id: 'brazil', name: 'Latin America', type: SpaceType.LAND, isSupplySpace: false, x: 470, y: 680, controlsStrait: { connects: ['south_atlantic', 'southeast_pacific'] } },
+  { id: 'brazil', name: 'Latin America', type: SpaceType.LAND, isSupplySpace: false, x: 259, y: 645, controlsStrait: { connects: ['south_atlantic', 'southeast_pacific'] } },
 
   // ─── EUROPE ───
-  { id: 'iceland', name: 'Iceland', type: SpaceType.LAND, isSupplySpace: false, x: 680, y: 130 },
-  { id: 'united_kingdom', name: 'United Kingdom', type: SpaceType.LAND, isSupplySpace: true, homeCountry: Country.UK, x: 700, y: 230 },
-  { id: 'western_europe', name: 'Western Europe', type: SpaceType.LAND, isSupplySpace: true, x: 730, y: 340 },
-  { id: 'germany', name: 'Germany', type: SpaceType.LAND, isSupplySpace: true, homeCountry: Country.GERMANY, x: 820, y: 240 },
-  { id: 'scandinavia', name: 'Scandinavia', type: SpaceType.LAND, isSupplySpace: false, x: 810, y: 130, controlsStrait: { connects: ['north_sea', 'baltic'] } },
-  { id: 'italy', name: 'Italy', type: SpaceType.LAND, isSupplySpace: true, homeCountry: Country.ITALY, x: 810, y: 380 },
-  { id: 'balkans', name: 'Balkans', type: SpaceType.LAND, isSupplySpace: false, x: 900, y: 380, controlsStrait: { connects: ['mediterranean', 'black_sea'] } },
-  { id: 'eastern_europe', name: 'Eastern Europe', type: SpaceType.LAND, isSupplySpace: false, x: 930, y: 250 },
+  { id: 'iceland', name: 'Iceland', type: SpaceType.LAND, isSupplySpace: false, x: 432, y: 39 },
+  { id: 'united_kingdom', name: 'United Kingdom', type: SpaceType.LAND, isSupplySpace: true, homeCountry: Country.UK, x: 484, y: 170 },
+  { id: 'western_europe', name: 'Western Europe', type: SpaceType.LAND, isSupplySpace: true, x: 558, y: 282 },
+  { id: 'germany', name: 'Germany', type: SpaceType.LAND, isSupplySpace: true, homeCountry: Country.GERMANY, x: 644, y: 221 },
+  { id: 'scandinavia', name: 'Scandinavia', type: SpaceType.LAND, isSupplySpace: false, x: 670, y: 38, controlsStrait: { connects: ['north_sea', 'baltic'] } },
+  { id: 'italy', name: 'Italy', type: SpaceType.LAND, isSupplySpace: true, homeCountry: Country.ITALY, x: 643, y: 355 },
+  { id: 'balkans', name: 'Balkans', type: SpaceType.LAND, isSupplySpace: false, x: 715, y: 319, controlsStrait: { connects: ['mediterranean', 'black_sea'] } },
+  { id: 'eastern_europe', name: 'Eastern Europe', type: SpaceType.LAND, isSupplySpace: false, x: 729, y: 211 },
 
   // ─── RUSSIA / CENTRAL ASIA ───
-  { id: 'ukraine', name: 'Ukraine', type: SpaceType.LAND, isSupplySpace: true, x: 1010, y: 350 },
-  { id: 'russia', name: 'Russia', type: SpaceType.LAND, isSupplySpace: false, x: 975, y: 155 },
-  { id: 'moscow', name: 'Moscow', type: SpaceType.LAND, isSupplySpace: true, homeCountry: Country.SOVIET_UNION, x: 1070, y: 245 },
-  { id: 'siberia', name: 'Siberia', type: SpaceType.LAND, isSupplySpace: false, x: 1190, y: 145 },
-  { id: 'kazakhstan', name: 'Kazakhstan', type: SpaceType.LAND, isSupplySpace: false, x: 1150, y: 310 },
-  { id: 'mongolia', name: 'Mongolia', type: SpaceType.LAND, isSupplySpace: false, x: 1300, y: 235 },
-  { id: 'vladivostok', name: 'Vladivostok', type: SpaceType.LAND, isSupplySpace: false, x: 1400, y: 175 },
+  { id: 'ukraine', name: 'Ukraine', type: SpaceType.LAND, isSupplySpace: true, x: 829, y: 261 },
+  { id: 'russia', name: 'Russia', type: SpaceType.LAND, isSupplySpace: false, x: 818, y: 92 },
+  { id: 'moscow', name: 'Moscow', type: SpaceType.LAND, isSupplySpace: true, homeCountry: Country.SOVIET_UNION, x: 929, y: 163 },
+  { id: 'siberia', name: 'Siberia', type: SpaceType.LAND, isSupplySpace: false, x: 1145, y: 79 },
+  { id: 'kazakhstan', name: 'Kazakhstan', type: SpaceType.LAND, isSupplySpace: false, x: 1013, y: 293 },
+  { id: 'mongolia', name: 'Mongolia', type: SpaceType.LAND, isSupplySpace: false, x: 1272, y: 236 },
+  { id: 'vladivostok', name: 'Vladivostok', type: SpaceType.LAND, isSupplySpace: false, x: 1481, y: 49 },
 
   // ─── AFRICA ───
-  { id: 'north_africa', name: 'North Africa', type: SpaceType.LAND, isSupplySpace: false, x: 770, y: 490, controlsStrait: { connects: ['north_sea', 'mediterranean'] } },
-  { id: 'africa', name: 'Africa', type: SpaceType.LAND, isSupplySpace: false, x: 670, y: 600 },
-  { id: 'madagascar', name: 'Madagascar', type: SpaceType.LAND, isSupplySpace: false, x: 930, y: 600 },
+  { id: 'north_africa', name: 'North Africa', type: SpaceType.LAND, isSupplySpace: false, x: 653, y: 491, controlsStrait: { connects: ['north_sea', 'mediterranean'] } },
+  { id: 'africa', name: 'Africa', type: SpaceType.LAND, isSupplySpace: false, x: 648, y: 606 },
+  { id: 'madagascar', name: 'Madagascar', type: SpaceType.LAND, isSupplySpace: false, x: 832, y: 796 },
 
   // ─── MIDDLE EAST / SOUTH ASIA ───
-  { id: 'middle_east', name: 'Middle East', type: SpaceType.LAND, isSupplySpace: false, x: 1050, y: 460, controlsStrait: { connects: ['mediterranean', 'indian_ocean'] } },
-  { id: 'india', name: 'India', type: SpaceType.LAND, isSupplySpace: true, x: 1170, y: 470 },
-  { id: 'szechuan', name: 'Szechuan', type: SpaceType.LAND, isSupplySpace: false, x: 1260, y: 360 },
-  { id: 'china', name: 'China', type: SpaceType.LAND, isSupplySpace: true, x: 1340, y: 320 },
-  { id: 'southeast_asia', name: 'Southeast Asia', type: SpaceType.LAND, isSupplySpace: false, x: 1290, y: 500, controlsStrait: { connects: ['bay_of_bengal', 'south_china_sea'] } },
+  { id: 'middle_east', name: 'Middle East', type: SpaceType.LAND, isSupplySpace: false, x: 872, y: 419, controlsStrait: { connects: ['mediterranean', 'indian_ocean'] } },
+  { id: 'india', name: 'India', type: SpaceType.LAND, isSupplySpace: true, x: 1141, y: 513 },
+  { id: 'szechuan', name: 'Szechuan', type: SpaceType.LAND, isSupplySpace: false, x: 1186, y: 370 },
+  { id: 'china', name: 'China', type: SpaceType.LAND, isSupplySpace: true, x: 1331, y: 373 },
+  { id: 'southeast_asia', name: 'Southeast Asia', type: SpaceType.LAND, isSupplySpace: false, x: 1258, y: 510, controlsStrait: { connects: ['bay_of_bengal', 'south_china_sea'] } },
 
   // ─── EAST ASIA / PACIFIC ISLANDS ───
-  { id: 'japan', name: 'Japan', type: SpaceType.LAND, isSupplySpace: true, homeCountry: Country.JAPAN, x: 1480, y: 270 },
-  { id: 'philippines', name: 'Philippines', type: SpaceType.LAND, isSupplySpace: false, x: 1410, y: 470 },
-  { id: 'indonesia', name: 'Indonesia', type: SpaceType.LAND, isSupplySpace: false, x: 1370, y: 570 },
-  { id: 'iwo_jima', name: 'Iwo Jima', type: SpaceType.LAND, isSupplySpace: false, x: 1530, y: 390 },
-  { id: 'new_guinea', name: 'New Guinea', type: SpaceType.LAND, isSupplySpace: false, x: 1530, y: 570 },
-  { id: 'new_zealand', name: 'New Zealand', type: SpaceType.LAND, isSupplySpace: false, x: 1640, y: 720 },
-  { id: 'australia', name: 'Australia', type: SpaceType.LAND, isSupplySpace: true, x: 1500, y: 700 },
+  { id: 'japan', name: 'Japan', type: SpaceType.LAND, isSupplySpace: true, homeCountry: Country.JAPAN, x: 1501, y: 358 },
+  { id: 'philippines', name: 'Philippines', type: SpaceType.LAND, isSupplySpace: false, x: 1428, y: 542 },
+  { id: 'indonesia', name: 'Indonesia', type: SpaceType.LAND, isSupplySpace: false, x: 1328, y: 644 },
+  { id: 'iwo_jima', name: 'Iwo Jima', type: SpaceType.LAND, isSupplySpace: false, x: 1539, y: 426 },
+  { id: 'new_guinea', name: 'New Guinea', type: SpaceType.LAND, isSupplySpace: false, x: 1529, y: 644 },
+  { id: 'new_zealand', name: 'New Zealand', type: SpaceType.LAND, isSupplySpace: false, x: 1621, y: 912 },
+  { id: 'australia', name: 'Australia', type: SpaceType.LAND, isSupplySpace: true, x: 1449, y: 791 },
 
   // ─── SEA SPACES ───
-  { id: 'north_atlantic', name: 'North Atlantic', type: SpaceType.SEA, isSupplySpace: false, x: 550, y: 310 },
-  { id: 'south_atlantic', name: 'South Atlantic', type: SpaceType.SEA, isSupplySpace: false, x: 600, y: 620 },
-  { id: 'north_sea', name: 'North Sea', type: SpaceType.SEA, isSupplySpace: false, x: 760, y: 150 },
-  { id: 'baltic', name: 'Baltic Sea', type: SpaceType.SEA, isSupplySpace: false, x: 850, y: 160 },
-  { id: 'mediterranean', name: 'Mediterranean', type: SpaceType.SEA, isSupplySpace: false, x: 850, y: 440 },
-  { id: 'black_sea', name: 'Black Sea', type: SpaceType.SEA, isSupplySpace: false, x: 960, y: 380 },
-  { id: 'caspian_sea', name: 'Caspian Sea', type: SpaceType.SEA, isSupplySpace: false, x: 1080, y: 350 },
-  { id: 'southern_ocean', name: 'Southern Ocean', type: SpaceType.SEA, isSupplySpace: false, x: 830, y: 680 },
-  { id: 'indian_ocean', name: 'Indian Ocean', type: SpaceType.SEA, isSupplySpace: false, x: 1070, y: 630 },
-  { id: 'bay_of_bengal', name: 'Bay of Bengal', type: SpaceType.SEA, isSupplySpace: false, x: 1220, y: 550 },
-  { id: 'south_china_sea', name: 'South China Sea', type: SpaceType.SEA, isSupplySpace: false, x: 1370, y: 460 },
-  { id: 'sea_of_japan', name: 'Sea of Japan', type: SpaceType.SEA, isSupplySpace: false, x: 1440, y: 210 },
-  { id: 'north_pacific', name: 'North Pacific', type: SpaceType.SEA, isSupplySpace: false, x: 1620, y: 250 },
-  { id: 'east_pacific', name: 'East Pacific', type: SpaceType.SEA, isSupplySpace: false, x: 1700, y: 420 },
-  { id: 'central_pacific', name: 'Central Pacific', type: SpaceType.SEA, isSupplySpace: false, x: 1620, y: 450 },
-  { id: 'south_pacific', name: 'South Pacific', type: SpaceType.SEA, isSupplySpace: false, x: 1610, y: 640 },
-  { id: 'southeast_pacific', name: 'Southeast Pacific', type: SpaceType.SEA, isSupplySpace: false, x: 340, y: 620 },
+  { id: 'north_atlantic', name: 'North Atlantic', type: SpaceType.SEA, isSupplySpace: false, x: 264, y: 376 },
+  { id: 'south_atlantic', name: 'South Atlantic', type: SpaceType.SEA, isSupplySpace: false, x: 457, y: 685 },
+  { id: 'north_sea', name: 'North Sea', type: SpaceType.SEA, isSupplySpace: false, x: 402, y: 298 },
+  { id: 'baltic', name: 'Baltic Sea', type: SpaceType.SEA, isSupplySpace: false, x: 689, y: 152 },
+  { id: 'mediterranean', name: 'Mediterranean', type: SpaceType.SEA, isSupplySpace: false, x: 716, y: 422 },
+  { id: 'black_sea', name: 'Black Sea', type: SpaceType.SEA, isSupplySpace: false, x: 795, y: 334 },
+  { id: 'caspian_sea', name: 'Caspian Sea', type: SpaceType.SEA, isSupplySpace: false, x: 933, y: 337 },
+  { id: 'southern_ocean', name: 'Southern Ocean', type: SpaceType.SEA, isSupplySpace: false, x: 478, y: 932 },
+  { id: 'indian_ocean', name: 'Indian Ocean', type: SpaceType.SEA, isSupplySpace: false, x: 1052, y: 895 },
+  { id: 'bay_of_bengal', name: 'Bay of Bengal', type: SpaceType.SEA, isSupplySpace: false, x: 1051, y: 649 },
+  { id: 'south_china_sea', name: 'South China Sea', type: SpaceType.SEA, isSupplySpace: false, x: 1405, y: 616 },
+  { id: 'sea_of_japan', name: 'Sea of Japan', type: SpaceType.SEA, isSupplySpace: false, x: 1438, y: 455 },
+  { id: 'north_pacific', name: 'North Pacific', type: SpaceType.SEA, isSupplySpace: false, x: 1657, y: 245 },
+  { id: 'east_pacific', name: 'East Pacific', type: SpaceType.SEA, isSupplySpace: false, x: 1759, y: 573 },
+  { id: 'central_pacific', name: 'Central Pacific', type: SpaceType.SEA, isSupplySpace: false, x: 1591, y: 541 },
+  { id: 'south_pacific', name: 'South Pacific', type: SpaceType.SEA, isSupplySpace: false, x: 1603, y: 741 },
+  { id: 'southeast_pacific', name: 'Southeast Pacific', type: SpaceType.SEA, isSupplySpace: false, x: 90, y: 694 },
 ];
 
 const RAW_ADJACENCIES: [string, string][] = [
@@ -334,7 +334,7 @@ export function spaceMatchesWhere(spaceId: string, where: string[]): boolean {
 }
 
 export const MAP_WIDTH = 1920;
-export const MAP_HEIGHT = 780;
+export const MAP_HEIGHT = 983;
 
 export const CONTINENT_SHAPES: { name: string; color: string; points: string }[] = [
   {

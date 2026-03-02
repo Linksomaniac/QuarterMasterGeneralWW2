@@ -36,41 +36,43 @@ function VPTrack() {
   const axisVP = useGameStore((s) => s.axisVP);
   const alliesVP = useGameStore((s) => s.alliesVP);
   const maxVP = Math.max(axisVP, alliesVP, 50);
+  const diff = axisVP - alliesVP;
 
   return (
     <div className="bg-[#0F1C2E] rounded-lg p-3 border border-[#1A3A5A]">
-      <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">
-        Victory Points
-      </h3>
-      <div className="space-y-2">
-        <div>
-          <div className="flex justify-between text-xs mb-0.5">
-            <span className="text-red-400 font-bold">Axis</span>
-            <span className="text-red-400 font-bold">{axisVP}</span>
-          </div>
-          <div className="h-2 bg-[#1A2A3A] rounded-full overflow-hidden">
-            <div
-              className="h-full bg-gradient-to-r from-red-800 to-red-500 rounded-full transition-all duration-500"
-              style={{ width: `${Math.min(100, (axisVP / maxVP) * 100)}%` }}
-            />
-          </div>
+      {/* Score display */}
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2">
+          <div className="w-2 h-2 rounded-full bg-red-500" />
+          <span className="text-[9px] font-bold text-red-400/70 uppercase">Axis</span>
         </div>
-        <div>
-          <div className="flex justify-between text-xs mb-0.5">
-            <span className="text-blue-400 font-bold">Allies</span>
-            <span className="text-blue-400 font-bold">{alliesVP}</span>
-          </div>
-          <div className="h-2 bg-[#1A2A3A] rounded-full overflow-hidden">
-            <div
-              className="h-full bg-gradient-to-r from-blue-800 to-blue-500 rounded-full transition-all duration-500"
-              style={{ width: `${Math.min(100, (alliesVP / maxVP) * 100)}%` }}
-            />
-          </div>
+        <div className="flex items-center gap-3">
+          <span className="text-2xl font-display font-black text-red-400 leading-none tabular-nums">{axisVP}</span>
+          <span className="text-gray-600 text-xs font-bold">:</span>
+          <span className="text-2xl font-display font-black text-blue-400 leading-none tabular-nums">{alliesVP}</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-[9px] font-bold text-blue-400/70 uppercase">Allies</span>
+          <div className="w-2 h-2 rounded-full bg-blue-500" />
         </div>
       </div>
-      <div className="mt-2 text-center">
-        <span className={`text-lg font-display font-bold ${axisVP > alliesVP ? 'text-red-400' : axisVP < alliesVP ? 'text-blue-400' : 'text-gray-400'}`}>
-          {axisVP > alliesVP ? `Axis +${axisVP - alliesVP}` : axisVP < alliesVP ? `Allies +${alliesVP - axisVP}` : 'Tied'}
+      {/* Stacked progress bar */}
+      <div className="relative h-3 bg-[#1A2A3A] rounded-full overflow-hidden">
+        <div
+          className="absolute left-0 top-0 h-full bg-gradient-to-r from-red-700 to-red-500 transition-all duration-500"
+          style={{ width: `${Math.min(100, (axisVP / maxVP) * 100)}%` }}
+        />
+        <div
+          className="absolute right-0 top-0 h-full bg-gradient-to-l from-blue-700 to-blue-500 transition-all duration-500"
+          style={{ width: `${Math.min(100, (alliesVP / maxVP) * 100)}%` }}
+        />
+      </div>
+      {/* Difference indicator */}
+      <div className="mt-1.5 text-center">
+        <span className={`text-[10px] font-display font-bold px-2.5 py-0.5 rounded-full ${
+          diff > 0 ? 'text-red-400 bg-red-400/10' : diff < 0 ? 'text-blue-400 bg-blue-400/10' : 'text-gray-400 bg-gray-400/10'
+        }`}>
+          {diff > 0 ? `Axis +${diff}` : diff < 0 ? `Allies +${-diff}` : 'Tied'}
         </span>
       </div>
     </div>
@@ -226,14 +228,32 @@ export default function Sidebar() {
   const axisCountries = TURN_ORDER.filter((c) => getTeam(c) === Team.AXIS);
   const alliedCountries = TURN_ORDER.filter((c) => getTeam(c) === Team.ALLIES);
 
+  const currentCountry = getCurrentCountry(state);
+  const currentTeam = getTeam(currentCountry);
+
   return (
-    <div className="w-72 flex flex-col gap-3 p-3 bg-[#0A1628]/90 border-l border-[#1A3A5A] overflow-y-auto">
-      {/* Round & Phase */}
-      <div className="bg-[#0F1C2E] rounded-lg p-3 border border-[#1A3A5A] text-center">
-        <div className="text-xs text-gray-400 uppercase tracking-wider">Round</div>
-        <div className="text-2xl font-display font-bold text-board-supply">{round} / 20</div>
-        <div className="text-[10px] text-gray-400 mt-1 uppercase">
-          {phase.replace(/_/g, ' ')}
+    <div className="w-72 flex flex-col gap-2.5 p-3 bg-[#0A1628]/90 border-l border-[#1A3A5A] overflow-y-auto">
+      {/* Round + Active Player */}
+      <div className="bg-[#0F1C2E] rounded-lg p-3 border border-[#1A3A5A]">
+        <div className="flex items-center justify-between mb-2">
+          <div>
+            <div className="text-[9px] text-gray-500 uppercase tracking-widest font-bold">Round</div>
+            <div className="text-2xl font-display font-black text-board-supply leading-tight">{round}<span className="text-sm text-gray-500 font-normal"> / 20</span></div>
+          </div>
+          <div className="text-right">
+            <div className="text-[9px] text-yellow-500/70 uppercase font-bold tracking-wider">
+              {phase.replace(/_/g, ' ')}
+            </div>
+            <div className="flex items-center gap-1.5 justify-end mt-0.5">
+              <div className="w-2 h-2 rounded-full animate-pulse" style={{ backgroundColor: COUNTRY_COLORS[currentCountry] }} />
+              <span className="text-sm font-display font-bold" style={{ color: COUNTRY_COLORS[currentCountry] }}>
+                {COUNTRY_SHORT[currentCountry]}
+              </span>
+              <span className={`text-[8px] font-bold uppercase px-1.5 py-0.5 rounded ${currentTeam === Team.AXIS ? 'text-red-400 bg-red-400/10' : 'text-blue-400 bg-blue-400/10'}`}>
+                {currentTeam === Team.AXIS ? 'Axis' : 'Allies'}
+              </span>
+            </div>
+          </div>
         </div>
       </div>
 

@@ -67,16 +67,16 @@ export function getTeamCountries(team: Team): Country[] {
 
 export const COUNTRY_COLORS: Record<Country, string> = {
   [Country.GERMANY]: '#555555',
-  [Country.UK]: '#8B6914',
+  [Country.UK]: '#DAA520',
   [Country.JAPAN]: '#FFFFFF',
   [Country.SOVIET_UNION]: '#CC0000',
-  [Country.ITALY]: '#228B22',
-  [Country.USA]: '#2E5090',
+  [Country.ITALY]: '#7B1FA2',
+  [Country.USA]: '#2E7D32',
 };
 
 export const COUNTRY_TEXT_ON_BG: Record<Country, string> = {
   [Country.GERMANY]: '#FFFFFF',
-  [Country.UK]: '#FFFFFF',
+  [Country.UK]: '#1A1A1A',
   [Country.JAPAN]: '#1A1A1A',
   [Country.SOVIET_UNION]: '#FFFFFF',
   [Country.ITALY]: '#FFFFFF',
