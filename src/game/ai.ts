@@ -58,16 +58,18 @@ const COUNTRY_STRATEGIES: Record<Country, CountryStrategy> = {
   },
   [Country.USA]: {
     prioritySpaces: ['hawaii', 'east_pacific', 'central_pacific', 'south_china_sea',
-                     'philippines', 'iwo_jima', 'new_guinea', 'western_europe', 'north_atlantic'],
+                     'philippines', 'iwo_jima', 'sea_of_japan', 'japan',
+                     'new_guinea', 'western_europe', 'north_atlantic'],
     avoidSpaces: [],
     priorityCardIds: ['usa_aircraft_carriers', 'usa_amphibious_landings',
-                      'usa_superior_shipyards', 'usa_american_volunteer', 'usa_wartime_production'],
+                      'usa_superior_shipyards', 'usa_wartime_production',
+                      'usa_american_volunteer', 'usa_flying_fortresses'],
     buildNavyBonus: 10,
     buildArmyBonus: 0,
-    statusBonus: 4,
+    statusBonus: 8,
     responseBonus: 0,
     eventBonus: 2,
-    earlyStatusPriority: false,
+    earlyStatusPriority: true,
     earlyBuildPriority: true,
   },
   [Country.GERMANY]: {
@@ -353,9 +355,21 @@ function getCountrySpaceBonus(spaceId: string, country: Country, state: GameStat
     );
     if (alliedNearWE) bonus += 10;
   }
-  // Germany: bonus for east-chain offensive spaces
-  if (country === Country.GERMANY && GERMANY_EAST_CHAIN.has(spaceId)) {
-    bonus += 4;
+  // Germany: bonus for east-chain offensive spaces — Moscow is the prize
+  if (country === Country.GERMANY) {
+    if (GERMANY_EAST_CHAIN.has(spaceId)) bonus += 6;
+    if (spaceId === 'moscow') bonus += 25;    // Taking Moscow is devastating
+    if (spaceId === 'ukraine') bonus += 10;   // VP space + route to Moscow
+    if (spaceId === 'russia') bonus += 8;     // Adjacent to Moscow
+    // UK's home is also a major target
+    if (spaceId === 'united_kingdom') bonus += 15;
+    // When chain is active, offensive paths are even more valuable
+    const gerStatusIds = new Set(state.countries[Country.GERMANY].statusCards.map((c) => c.id));
+    const chainActive = ['ger_blitzkrieg', 'ger_bias_for_action', 'ger_dive_bombers']
+      .filter((id) => gerStatusIds.has(id)).length;
+    if (chainActive >= 2 && GERMANY_EAST_CHAIN.has(spaceId)) {
+      bonus += 10;  // Chain makes pushing east much more powerful
+    }
   }
 
   // --- USSR: defend Moscow neighborhood ---
@@ -369,7 +383,7 @@ function getCountrySpaceBonus(spaceId: string, country: Country, state: GameStat
     if (enemyNearMoscow) bonus += 15;
   }
 
-  // --- US: Pacific early, Europe late ---
+  // --- US: Pacific offensive, targeting Japan ---
   if (country === Country.USA) {
     const round = state.round;
     if (US_PACIFIC_SPACES.has(spaceId)) {
@@ -377,6 +391,23 @@ function getCountrySpaceBonus(spaceId: string, country: Country, state: GameStat
     }
     if (US_EUROPE_SPACES.has(spaceId)) {
       bonus += round > 8 ? 10 : 2;
+    }
+    // Japan and Sea of Japan are key targets — US should push to take Japan's home
+    if (spaceId === 'japan') bonus += 20;
+    if (spaceId === 'sea_of_japan') bonus += 15;
+    // Stepping stones to Japan get extra bonus when US has navies nearby
+    const usNavies = state.countries[Country.USA].piecesOnBoard.filter((p) => p.type === 'navy');
+    const japanSteppingStones = ['iwo_jima', 'central_pacific', 'north_pacific', 'philippines'];
+    if (japanSteppingStones.includes(spaceId) && usNavies.length > 0) {
+      bonus += 8;
+    }
+    // When US has force-multiplier status cards, be more aggressive on attack paths
+    const usStatusIds = new Set(state.countries[Country.USA].statusCards.map((c) => c.id));
+    if (usStatusIds.has('usa_aircraft_carriers') || usStatusIds.has('usa_amphibious_landings')) {
+      // With these active, offensive spaces become more valuable
+      if (['sea_of_japan', 'japan', 'iwo_jima', 'philippines', 'south_china_sea'].includes(spaceId)) {
+        bonus += 10;
+      }
     }
   }
 
@@ -397,10 +428,41 @@ function getCountrySpaceBonus(spaceId: string, country: Country, state: GameStat
     bonus += 8;
   }
 
-  // --- UK: avoid building where US should ---
-  if (country === Country.UK &&
-      ['eastern_us', 'western_us', 'hawaii', 'east_pacific'].includes(spaceId)) {
-    bonus -= 15;
+  // --- UK: push toward Germany, protect home ---
+  if (country === Country.UK) {
+    if (['eastern_us', 'western_us', 'hawaii', 'east_pacific'].includes(spaceId)) {
+      bonus -= 15;
+    }
+    // Germany and Western Europe are key targets for UK
+    if (spaceId === 'germany') bonus += 20;
+    if (spaceId === 'western_europe') bonus += 12;
+    // North Sea control is critical for UK supply and D-Day
+    if (spaceId === 'north_sea') bonus += 10;
+    // When UK has status cards that multiply battles/builds, be more aggressive
+    const ukStatusIds = new Set(state.countries[Country.UK].statusCards.map((c) => c.id));
+    if (ukStatusIds.has('uk_royal_navy') || ukStatusIds.has('uk_free_france')) {
+      if (['western_europe', 'north_sea', 'north_atlantic', 'mediterranean'].includes(spaceId)) {
+        bonus += 8;
+      }
+    }
+  }
+
+  // --- Japan: push toward India, Australia, and enemy supply spaces ---
+  if (country === Country.JAPAN) {
+    if (spaceId === 'india') bonus += 15;
+    if (spaceId === 'australia') bonus += 15;
+    if (spaceId === 'united_kingdom') bonus += 10;  // distant but devastating
+    // Key offensive sea spaces for Japan
+    if (['bay_of_bengal', 'indian_ocean', 'south_china_sea'].includes(spaceId)) {
+      bonus += 8;
+    }
+    // When responses are active, aggressive expansion spaces become more valuable
+    const jpnResponseIds = new Set(state.countries[Country.JAPAN].responseCards.map((c) => c.id));
+    if (jpnResponseIds.has('jpn_destroyer_transport') || jpnResponseIds.has('jpn_snlf')) {
+      if (['india', 'australia', 'southeast_asia', 'new_guinea', 'philippines'].includes(spaceId)) {
+        bonus += 10;
+      }
+    }
   }
 
   return bonus;
