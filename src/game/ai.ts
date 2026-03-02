@@ -347,15 +347,10 @@ interface AiDecision {
 }
 
 function getEffectiveSupplySpaces(country: Country, state: GameState): string[] {
+  // Only starred board supply spaces give VP — card-granted supply (Szechuan/Truk) does not.
   let spaces = [...SUPPLY_SPACE_IDS];
   if (state.supplyMarkers.scorched_earth_ukraine && getTeam(country) === Team.AXIS) {
     spaces = spaces.filter((s) => s !== 'ukraine');
-  }
-  if (getTeam(country) === Team.ALLIES && state.supplyMarkers.canada) {
-    if (country === Country.UK && !spaces.includes('canada')) spaces.push('canada');
-  }
-  if (country === Country.USA && state.supplyMarkers.szechuan) {
-    if (!spaces.includes('szechuan')) spaces.push('szechuan');
   }
   return spaces;
 }

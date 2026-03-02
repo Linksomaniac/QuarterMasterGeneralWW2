@@ -646,10 +646,15 @@ export function calculateVictoryPoints(country: Country, state: GameState): numb
     return 0;
   }
 
-  const supplySpaces = getSupplySpacesForCountry(country, state.supplyMarkers);
+  // VP scoring uses only the starred board supply spaces (not card-granted supply like Szechuan/Truk).
+  // Scorched Earth still removes Ukraine for Axis.
+  let vpSupplySpaces = [...SUPPLY_SPACE_IDS];
+  if (state.supplyMarkers.scorched_earth_ukraine && getTeam(country) === Team.AXIS) {
+    vpSupplySpaces = vpSupplySpaces.filter((s) => s !== 'ukraine');
+  }
   let vp = 0;
 
-  for (const spaceId of supplySpaces) {
+  for (const spaceId of vpSupplySpaces) {
     const countryArmies = allPieces.filter(
       (p) => p.spaceId === spaceId && p.country === country && p.type === 'army'
     );
