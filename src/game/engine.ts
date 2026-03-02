@@ -225,36 +225,33 @@ export function isInSupply(piece: Piece, state: GameState): boolean {
   if (piece.type === 'navy') {
     const space = getSpace(piece.spaceId);
     if (space?.type === 'SEA') {
-      // Supply Step 1 + Step 2 for navies:
-      // A navy is in supply only if it is adjacent to an allied army that is
-      // ITSELF supply-connected (i.e. that army's space is reachable in its
-      // own country's BFS chain back to a supply space).
-      // Cache chains per ally country so we run each BFS at most once.
-      const chainCache = new Map<Country, Set<string>>();
-      const getChain = (c: Country) => {
-        if (!chainCache.has(c)) chainCache.set(c, computeArmySupplyChain(c, allPieces, state));
-        return chainCache.get(c)!;
-      };
+      // Two rules must both be satisfied for a navy in a sea space:
+      //
+      // Rule 1 – own-country supply chain: the navy's spaceId must be
+      //   reachable in the BFS that starts from own-country supply origins and
+      //   traverses through ALL same-country pieces (armies on land AND navies
+      //   on sea).  This lets navies chain together back to a supply space,
+      //   e.g. US navy in North Sea is in supply if connected via a US navy in
+      //   North Atlantic all the way back to Eastern US.
+      //
+      // Rule 2 – adjacent allied land: the navy must also sit next to at least
+      //   one land space that has any same-team army on it (e.g. UK army at UK
+      //   satisfies Rule 2 for a US navy in the North Sea).
+      const chain = computeArmySupplyChain(country, allPieces, state);
+      if (!chain.has(piece.spaceId)) return false;                 // Rule 1
 
-      // The navy's supply chain runs through its OWN country's armies only.
-      // An allied army (e.g. Germany adjacent to the Mediterranean) does NOT
-      // supply an Italian navy — each nation's fleet is anchored by that
-      // nation's own piece chain back to a supply space.
-      const chain = getChain(country);
-      return getAdjacentSpaces(piece.spaceId).some((adjId) => {
+      return getAdjacentSpaces(piece.spaceId).some((adjId) => {   // Rule 2
         const adjSpace = getSpace(adjId);
         if (adjSpace?.type !== 'LAND') return false;
-        // There must be an army of the SAME country on the adjacent land tile,
-        // and that army must be supply-connected in the country's own chain.
         return allPieces.some(
-          (p) => p.spaceId === adjId && p.type === 'army' && p.country === country && chain.has(adjId)
+          (p) => p.spaceId === adjId && p.type === 'army' && getTeam(p.country) === team
         );
       });
     }
-    // Navy on a non-sea space (rare): fall through to army BFS check.
+    // Navy on a non-sea space (rare): fall through to supply chain check.
   }
 
-  // Armies (and non-sea navies): BFS from supply origins through piece chains.
+  // Armies (and non-sea navies): must be reachable in own-country supply chain.
   return computeArmySupplyChain(country, allPieces, state).has(piece.spaceId);
 }
 
