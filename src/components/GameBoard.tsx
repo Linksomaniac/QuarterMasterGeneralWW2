@@ -111,7 +111,7 @@ export default function GameBoard() {
         </defs>
 
         {/* ═══ BOARD IMAGE ═══ */}
-        <image href="/board.png" x={0} y={0} width={MAP_WIDTH} height={MAP_HEIGHT} preserveAspectRatio="none" />
+        <image href={`${import.meta.env.BASE_URL}board.png`} x={0} y={0} width={MAP_WIDTH} height={MAP_HEIGHT} preserveAspectRatio="none" />
 
         {/* ═══ HIGHLIGHT OVERLAYS for valid spaces ═══ */}
         {SPACES.filter(s => validSpaces.has(s.id)).map(space => (
