@@ -682,6 +682,34 @@ function scoreCard(
     ? getCountryCardBonus(card, country, state, round)
     : 0;
 
+  // ---------------------------------------------------------------------------
+  // VP Urgency: shift strategy based on how close either team is to sudden
+  // victory (±30 VP gap). When the gap is large, prioritise VP-generating cards
+  // (events, EW, status VP). When small, invest in board position (builds,
+  // battles). Applied to medium & hard difficulty only.
+  // ---------------------------------------------------------------------------
+  let vpBoost = 0;   // bonus applied to VP-generating cards
+  let posBoost = 0;  // bonus applied to board-position cards
+  if (difficulty !== 'easy') {
+    const team = getTeam(country);
+    const vpGap = team === Team.AXIS
+      ? state.axisVP - state.alliesVP
+      : state.alliesVP - state.axisVP;    // positive = winning
+    const urgency = Math.min(Math.abs(vpGap) / 30, 1);  // 0..1
+    const losing = vpGap < 0;
+
+    // High urgency (gap ≥ 15): push for VP to win or catch up
+    vpBoost = urgency * 12;                              // max +12
+    // Low urgency (gap < 9): invest in board position
+    posBoost = Math.max(0, (1 - urgency) * 8);           // max +8 when even
+
+    // When losing, extra urgency for VP cards and penalty on slow builds
+    if (losing) {
+      vpBoost += urgency * 6;                             // extra +6 max
+      posBoost = Math.max(0, posBoost - urgency * 4);     // reduce position bonus
+    }
+  }
+
   switch (card.type) {
     case CardType.BUILD_ARMY: {
       if (available.armies <= 0) return -5;
@@ -691,6 +719,7 @@ function scoreCard(
       let score = 5 + Math.max(...locations.map((l) => scoreSpace(l, country, state, vpTargets)));
       if (isHard && isEarly) score += 8;
       else if (isHard && isMid) score += 3;
+      score += posBoost;
       return score + countryBonus;
     }
     case CardType.BUILD_NAVY: {
@@ -714,6 +743,7 @@ function scoreCard(
       let score = 4 + Math.max(supportedLocations.length, ...supportedLocations.map((l) => scoreSpace(l, country, state, vpTargetsNav)));
       if (isHard && isEarly) score += 8;
       else if (isHard && isMid) score += 3;
+      score += posBoost;
       return score + countryBonus;
     }
     case CardType.LAND_BATTLE: {
@@ -729,6 +759,7 @@ function scoreCard(
       let score = 8 + Math.max(...targets.map((t) => scoreSpace(t, country, state)));
       if (isHard) score -= getResponsePenaltyForTargets(targets, country, state);
       if (isHard && isEarly) score -= 4;
+      score += posBoost * 0.5;
       return score + countryBonus;
     }
     case CardType.SEA_BATTLE: {
@@ -743,12 +774,16 @@ function scoreCard(
       let score = 7 + targets.length;
       if (isHard) score -= getResponsePenaltyForTargets(targets, country, state);
       if (isHard && isEarly) score -= 4;
+      score += posBoost * 0.5;
       return score + countryBonus;
     }
     case CardType.STATUS: {
       let score = isHard ? scoreStatusCardHard(card, country, state) : 12;
       if (isHard && isEarly) score += 6;
       else if (isHard && isMid) score += 2;
+      // VP-generating status cards get urgency boost
+      const hasVPEffect = card.effects.some((e) => e.type === 'VP_PER_CONDITION');
+      if (hasVPEffect) score += vpBoost;
       return score + countryBonus;
     }
     case CardType.RESPONSE: {
@@ -767,12 +802,19 @@ function scoreCard(
         if (isEarly && !hasBuildEffect) score -= 6;
         else if (isEarly && hasBuildEffect) score += 4;
       }
+      // Events with VP effects get urgency boost; build-only events get position boost
+      const hasVPEventEffect = card.effects.some(
+        (e) => e.type === 'SCORE_VP' || e.type === 'DISCARD_CARDS'
+      );
+      if (hasVPEventEffect) score += vpBoost;
+      else score += posBoost * 0.5;
       return score + countryBonus;
     }
     case CardType.ECONOMIC_WARFARE: {
       let score = isHard ? scoreEconomicWarfareHard(card, country, state) : 6;
       if (isHard && isEarly) score -= 8;
       else if (isHard && isMid) score -= 3;
+      score += vpBoost;
       return score + countryBonus;
     }
     default:
