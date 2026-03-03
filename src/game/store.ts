@@ -2832,7 +2832,52 @@ export const useGameStore = create<GameStore>((set, get) => ({
         const res = aiResolvePendingAction(ns, pendingAction, diff);
         if (typeof res === 'string' && res) {
           if (pendingAction.type === 'SELECT_FROM_DISCARD') {
-            get().selectFromDiscard(res);
+            // Inline resolution: selectFromDiscard requires store pendingAction
+            // to be set, but executeAiTurn keeps it in a local variable. Resolve
+            // Flexible Resources directly here instead.
+            const { newState: frState, pendingAction: frPA } = resolveFlexibleResources(res, country, ns);
+            ns = frState;
+            if (frPA) {
+              const frRes = aiResolvePendingAction(ns, frPA, diff);
+              if (typeof frRes === 'string' && frRes) {
+                if (frPA.type === 'SELECT_BUILD_LOCATION') {
+                  const bc = frPA.buildCountry ?? country;
+                  ns = resolveBuildAction(frRes, frPA.pieceType, bc, ns);
+                  ns = addLogEntry(ns, bc, `Built ${frPA.pieceType} in ${frRes.replace(/_/g, ' ')}`);
+                  set({
+                    actionContext: {
+                      type: 'build', country: bc, spaceId: frRes,
+                      builtPieceId: ns.countries[bc].piecesOnBoard.find((p) => p.spaceId === frRes && p.type === frPA.pieceType)?.id ?? '',
+                      builtPieceType: frPA.pieceType,
+                      declinedCardIds: [], usedOffensiveIds: [], usedStatusAbilityIds: [],
+                      playedCard: card,
+                    },
+                  });
+                  const buildTrigger = frPA.pieceType === 'army' ? 'build_army' as const : 'build_navy' as const;
+                  if (tryOfferOffensiveResponse(buildTrigger, frRes, bc, ns, set, get)) return;
+                  if (proceedAfterAction(ns, set, get)) return;
+                } else if (frPA.type === 'SELECT_BATTLE_TARGET') {
+                  const spaceName = getSpace(frRes)?.name ?? frRes.replace(/_/g, ' ');
+                  ns = addLogEntry(ns, country, `Battled in ${spaceName}`);
+                  set({
+                    actionContext: {
+                      type: 'battle', country, spaceId: frRes,
+                      battleType: frPA.battleType,
+                      declinedCardIds: [], usedOffensiveIds: [], usedStatusAbilityIds: [],
+                      playedCard: card,
+                    },
+                  });
+                  const allPieces = getAllPieces(ns);
+                  const enemyTeam = getEnemyTeam(country);
+                  const targetPiece = allPieces.find(
+                    (p) => p.spaceId === frRes && getTeam(p.country) === enemyTeam
+                  );
+                  proceedWithElimination(frRes, country, targetPiece, ns, set, get);
+                  return;
+                }
+              }
+            }
+            goToSupplyStep(ns, set, get);
             return;
           }
           if (pendingAction.type === 'SELECT_EVENT_SPACE') {
