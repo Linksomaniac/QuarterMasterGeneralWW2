@@ -1841,6 +1841,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   selectCard: (card) => {
     const s = gs(get());
     if (s.phase !== GamePhase.PLAY_STEP) return;
+    if (s.pendingAction) return; // Block selection while resolving event/build effects
     if (card.country !== getCurrentCountry(s)) return;
     set({ selectedCard: card });
   },
@@ -1848,6 +1849,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   playSelectedCard: () => {
     const s = gs(get());
     if (!s.selectedCard || s.phase !== GamePhase.PLAY_STEP) return;
+    if (s.pendingAction) return; // Block play while resolving event/build effects
     const card = s.selectedCard;
     const country = getCurrentCountry(s);
     const cState = s.countries[country];
@@ -4371,7 +4373,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (result.pendingAction) {
       set({ ...ns, pendingAction: result.pendingAction });
     } else {
-      set({ ...ns });
+      // All event effects resolved — advance to supply step
+      set({ ...ns, pendingAction: null });
+      goToSupplyStep(ns, set, get);
     }
   },
 
