@@ -2376,19 +2376,19 @@ export const useGameStore = create<GameStore>((set, get) => ({
       const validSpaces = getValidMobileForceSpaces(advanced);
       if (validSpaces.length > 0) {
         if (advanced.countries[nextCountry].isHuman) {
+          // Ask human whether to activate Mobile Force before showing location picker
           set({
             ...advanced,
             selectedDiscards: new Set<string>(),
+            phase: GamePhase.AWAITING_RESPONSE,
             pendingAction: {
-              type: 'SELECT_RECRUIT_LOCATION',
-              pieceType: 'navy',
+              type: 'BEGINNING_TURN_RESPONSE',
+              responseCountry: Country.JAPAN,
+              responseCardId: mfCard.id,
+              responseCardName: mfCard.name,
+              description: 'Recruit a Navy in or adjacent to North Pacific.',
+              botType: 'mobile_force',
               validSpaces,
-              remaining: 1,
-              baseWhere: ['north_pacific'],
-              baseCondition: 'adjacent_or_in',
-              recruitCountry: Country.JAPAN,
-              eventCardName: mfCard.name,
-              botContinuation: true,
             },
           });
           return;
@@ -2403,10 +2403,27 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
     const dmCard = findDefenseOfMotherlandOpportunity(nextCountry, advanced);
     if (dmCard) {
-      const before = advanced;
-      advanced = resolveDefenseOfMotherland(advanced);
-      if (advanced !== before) {
-        // Log entries already added inside resolveDefenseOfMotherland
+      const ussrIsHuman = advanced.countries[Country.SOVIET_UNION].isHuman;
+      if (ussrIsHuman) {
+        // Ask human whether to activate Defense of the Motherland
+        set({
+          ...advanced,
+          selectedDiscards: new Set<string>(),
+          phase: GamePhase.AWAITING_RESPONSE,
+          pendingAction: {
+            type: 'BEGINNING_TURN_RESPONSE',
+            responseCountry: Country.SOVIET_UNION,
+            responseCardId: dmCard.id,
+            responseCardName: dmCard.name,
+            description: 'Recruit an Army in or adjacent to Moscow; then eliminate an Axis Army in Moscow.',
+          },
+        });
+        return;
+      }
+      // AI decision — use heuristic based on difficulty.
+      const diff = advanced.countries[Country.SOVIET_UNION].aiDifficulty;
+      if (aiShouldTriggerDefenseOfMotherland(advanced, diff)) {
+        advanced = resolveDefenseOfMotherland(advanced);
       }
     }
 
@@ -3357,9 +3374,39 @@ export const useGameStore = create<GameStore>((set, get) => ({
       return;
     }
 
-    // --- Beginning-of-Turn Response (Defense of the Motherland) ---
+    // --- Beginning-of-Turn Response (Mobile Force / Defense of the Motherland) ---
     if (pa.type === 'BEGINNING_TURN_RESPONSE') {
       let advanced = s;
+      const country = getCurrentCountry(advanced);
+
+      // --- Mobile Force ---
+      if (pa.botType === 'mobile_force') {
+        if (accept && pa.validSpaces && pa.validSpaces.length > 0) {
+          // Human accepted — show location picker for navy placement
+          set({
+            ...advanced,
+            selectedDiscards: new Set<string>(),
+            pendingAction: {
+              type: 'SELECT_RECRUIT_LOCATION',
+              pieceType: 'navy',
+              validSpaces: pa.validSpaces,
+              remaining: 1,
+              baseWhere: ['north_pacific'],
+              baseCondition: 'adjacent_or_in',
+              recruitCountry: Country.JAPAN,
+              eventCardName: pa.responseCardName,
+              botContinuation: true,
+            },
+          });
+          return;
+        }
+        // Declined Mobile Force — continue to check Defense of Motherland
+        const ns = { ...advanced, pendingAction: null };
+        continueBeginningOfTurnAfterMobileForce(ns, country, set, get);
+        return;
+      }
+
+      // --- Defense of the Motherland ---
       if (accept) {
         advanced = resolveDefenseOfMotherland(advanced);
       }
@@ -3979,19 +4026,19 @@ export const useGameStore = create<GameStore>((set, get) => ({
       const validSpaces = getValidMobileForceSpaces(s);
       if (validSpaces.length > 0) {
         if (s.countries[country].isHuman) {
+          // Ask human whether to activate Mobile Force before showing location picker
           set({
             ...s,
             selectedDiscards: new Set<string>(),
+            phase: GamePhase.AWAITING_RESPONSE,
             pendingAction: {
-              type: 'SELECT_RECRUIT_LOCATION',
-              pieceType: 'navy',
+              type: 'BEGINNING_TURN_RESPONSE',
+              responseCountry: Country.JAPAN,
+              responseCardId: mfCard.id,
+              responseCardName: mfCard.name,
+              description: 'Recruit a Navy in or adjacent to North Pacific.',
+              botType: 'mobile_force',
               validSpaces,
-              remaining: 1,
-              baseWhere: ['north_pacific'],
-              baseCondition: 'adjacent_or_in',
-              recruitCountry: Country.JAPAN,
-              eventCardName: mfCard.name,
-              botContinuation: true,
             },
           });
           return;
@@ -4005,9 +4052,28 @@ export const useGameStore = create<GameStore>((set, get) => ({
     }
     const dmCard = findDefenseOfMotherlandOpportunity(country, s);
     if (dmCard) {
-      const before = s;
-      s = resolveDefenseOfMotherland(s);
-      if (s !== before) { /* log already inside */ }
+      const ussrIsHuman = s.countries[Country.SOVIET_UNION].isHuman;
+      if (ussrIsHuman) {
+        // Ask human whether to activate Defense of the Motherland
+        set({
+          ...s,
+          selectedDiscards: new Set<string>(),
+          phase: GamePhase.AWAITING_RESPONSE,
+          pendingAction: {
+            type: 'BEGINNING_TURN_RESPONSE',
+            responseCountry: Country.SOVIET_UNION,
+            responseCardId: dmCard.id,
+            responseCardName: dmCard.name,
+            description: 'Recruit an Army in or adjacent to Moscow; then eliminate an Axis Army in Moscow.',
+          },
+        });
+        return;
+      }
+      // AI decision — use heuristic based on difficulty.
+      const diff = s.countries[Country.SOVIET_UNION].aiDifficulty;
+      if (aiShouldTriggerDefenseOfMotherland(s, diff)) {
+        s = resolveDefenseOfMotherland(s);
+      }
     }
 
     set({ ...s, selectedDiscards: new Set() });

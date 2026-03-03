@@ -423,6 +423,10 @@ export type PendingAction =
       responseCardId: string;
       responseCardName: string;
       description: string;
+      /** Identifies the specific BoT card for special handling in the accept/decline handler. */
+      botType?: 'mobile_force';
+      /** Valid spaces for Mobile Force location picker (used after human accepts). */
+      validSpaces?: string[];
     };
 
 export const MAX_ROUNDS = 20;
