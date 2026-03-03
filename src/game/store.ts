@@ -761,7 +761,8 @@ function proceedAfterAction(
   get: () => GameStore
 ): boolean {
   const ctx = get().actionContext;
-  if (!ctx) return false;
+  if (!ctx) { console.log('[AI] proceedAfterAction: no ctx, returning false'); return false; }
+  console.log(`[AI] proceedAfterAction: ctx.type=${ctx.type}, ctx.spaceId=${ctx.spaceId}`);
 
   if (ctx.type === 'build') {
     const enemyReactions = findEnemyBuildReactions(
@@ -936,6 +937,7 @@ function processOffensiveResult(
   set: (s: Partial<GameStoreState>) => void,
   get: () => GameStore
 ): void {
+  console.log(`[AI] processOffensiveResult for ${COUNTRY_NAMES[country]}: card=${card.name}, needsRedeploy=${result.needsRedeploy}, validBuildSpaces=${result.validBuildSpaces?.length}, validBattleTargets=${result.validBattleTargets?.length}`);
   let ns = result.newState;
   let chainTrigger: ChainTrigger | undefined;
   let pendingElim: PendingElimination | undefined;
@@ -1091,6 +1093,7 @@ function finishOffensiveChain(
   set: (s: Partial<GameStoreState>) => void,
   get: () => GameStore
 ): void {
+  console.log(`[AI] finishOffensiveChain for ${COUNTRY_NAMES[country]}: chainTrigger=${chainTrigger?.type}, pendingElim=${!!pendingElim}`);
   const ctx = get().actionContext;
   if (ctx) {
     set({ actionContext: { ...ctx, usedOffensiveIds: usedIds } });
@@ -1310,6 +1313,7 @@ function goToSupplyStep(
 ) {
   const ctx = get().actionContext;
   const country = getCurrentCountry(state);
+  console.log(`[AI] goToSupplyStep for ${COUNTRY_NAMES[country]}, playedCard=${ctx?.playedCard?.name ?? 'none'}`);
 
   if (ctx?.playedCard) {
     state = ensurePlayedCardDiscarded(ctx.playedCard, country, state);
@@ -1511,6 +1515,7 @@ function proceedWithElimination(
   set: (s: Partial<GameStoreState>) => void,
   get: () => GameStore
 ): void {
+  console.log(`[AI] proceedWithElimination: space=${battleSpaceId}, attacker=${COUNTRY_NAMES[attackingCountry]}, target=${targetPiece?.country != null ? COUNTRY_NAMES[targetPiece.country] : 'none'}`);
   if (targetPiece) {
     if (targetPiece.country === Country.JAPAN && targetPiece.type === 'army') {
       const bushido = findBushidoOpportunity(battleSpaceId, attackingCountry, state);
@@ -2461,6 +2466,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const country = getCurrentCountry(s);
     const cState = s.countries[country];
     const diff = cState.aiDifficulty;
+    console.log(`[AI] ${COUNTRY_NAMES[country]} starting turn, hand=${cState.hand.length}, phase=${s.phase}`);
 
     if (cState.hand.length === 0) {
       set({ ...addLogEntry(s, country, 'No cards to play'), phase: GamePhase.SUPPLY_STEP });
@@ -2497,6 +2503,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     );
     if (shouldUseAlt) {
       const alt = altActions[0];
+      console.log(`[AI] ${COUNTRY_NAMES[country]} using alt action: ${alt.card.name}`);
       const { newState, pendingAction: altPA } = executeStatusAlternativeAction(alt.card, country, s);
       let logged = addLogEntry(newState, country, `Used ${alt.card.name}`);
 
@@ -2573,6 +2580,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     }
 
     const ci = aiChooseCard(s, diff);
+    console.log(`[AI] ${COUNTRY_NAMES[country]} chose card index=${ci}`);
     if (ci < 0) {
       set({ phase: GamePhase.SUPPLY_STEP });
       await delay(AI_DELAY);
@@ -2581,6 +2589,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     }
 
     const card = cState.hand[ci];
+    console.log(`[AI] ${COUNTRY_NAMES[country]} playing: ${card.name} (${card.type})`);
     set({ selectedCard: card });
     await delay(AI_DELAY);
 
@@ -2625,6 +2634,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const aiPlayResult = playCard(card, withRemoved);
     const aiLogMsg = card.type === CardType.RESPONSE ? 'Played a Response' : `Played ${card.name}`;
     let ns = addLogEntry(aiPlayResult.newState, country, aiLogMsg);
+    console.log(`[AI] ${COUNTRY_NAMES[country]} playCard result: pendingAction=${aiPlayResult.pendingAction?.type ?? 'null'}, eventBuildInfo=${!!aiPlayResult.eventBuildInfo}`);
 
     if (aiPlayResult.eventBuildInfo && !aiPlayResult.pendingAction) {
       if (handleEventBuildTrigger(aiPlayResult.eventBuildInfo, ns, set, get)) return;
@@ -3130,7 +3140,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
   respondToOpportunity: (accept) => {
     const s = gs(get());
     const pa = s.pendingAction;
-    if (!pa) return;
+    if (!pa) { console.warn('[AI] respondToOpportunity called with no pendingAction'); return; }
+    console.log(`[AI] respondToOpportunity: type=${pa.type}, accept=${accept}`);
 
     // --- Protection Response (existing) ---
     if (pa.type === 'RESPONSE_OPPORTUNITY') {
@@ -3669,7 +3680,33 @@ export const useGameStore = create<GameStore>((set, get) => ({
   },
 
   runFullAiTurn: async () => {
-    await get().executeAiTurn();
+    const startPhase = get().phase;
+    const startCountry = get().currentCountryIndex;
+    // Watchdog: if AI turn doesn't advance within 15 seconds, force-advance
+    const watchdog = setTimeout(() => {
+      const cur = get();
+      // Only intervene if we're still on the same country's turn and not waiting for human
+      if (cur.currentCountryIndex === startCountry && cur.phase !== GamePhase.GAME_OVER) {
+        const country = getCurrentCountry(gs(cur));
+        if (!cur.countries[country].isHuman) {
+          console.error('[AI Watchdog] Turn stuck for', COUNTRY_NAMES[country], 'phase:', cur.phase, 'pendingAction:', cur.pendingAction?.type);
+          const logged = addLogEntry(gs(cur), country, 'AI turn timed out — advancing');
+          set({ ...logged, pendingAction: null, phase: GamePhase.SUPPLY_STEP, actionContext: undefined, selectedCard: null });
+          setTimeout(() => get().advanceToNextPhase(), 400);
+        }
+      }
+    }, 15000);
+    try {
+      await get().executeAiTurn();
+    } finally {
+      // If executeAiTurn completed or threw, check if we've already advanced past this turn.
+      // If not (stuck in a callback chain), the watchdog will handle it.
+      const afterPhase = get().phase;
+      const afterCountry = get().currentCountryIndex;
+      if (afterPhase !== startPhase || afterCountry !== startCountry) {
+        clearTimeout(watchdog); // Turn advanced normally, cancel watchdog
+      }
+    }
   },
 
   useAlternativeAction: (statusCardId: string) => {
