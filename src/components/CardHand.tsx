@@ -1105,14 +1105,23 @@ function HandDiscardPrompt() {
 function RedeployPrompt() {
   const state = useGameStore();
   const confirmRedeploy = useGameStore((s) => s.confirmRedeploy);
+  const skipRedeploy = useGameStore((s) => s.skipRedeploy);
   const pa = state.pendingAction;
   if (!pa || pa.type !== 'SELECT_PIECE_TO_REDEPLOY') return null;
 
   return (
     <div className="flex flex-col gap-2">
-      <span className="text-xs text-yellow-400">
-        No {pa.pieceType === 'army' ? 'armies' : 'navies'} in reserve — choose which {pa.pieceType} to remove (you'll pick a new location next):
-      </span>
+      <div className="flex items-center justify-between">
+        <span className="text-xs text-yellow-400">
+          No {pa.pieceType === 'army' ? 'armies' : 'navies'} in reserve — choose which {pa.pieceType} to remove, or skip:
+        </span>
+        <button
+          onClick={skipRedeploy}
+          className="px-3 py-1.5 rounded text-xs font-bold bg-gray-700 text-gray-300 hover:bg-gray-600 transition-colors cursor-pointer ml-3 shrink-0"
+        >
+          Skip
+        </button>
+      </div>
       <div className="flex gap-2 flex-wrap">
         {pa.piecesOnBoard.map((p) => (
           <button

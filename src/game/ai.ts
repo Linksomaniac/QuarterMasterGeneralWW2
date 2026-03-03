@@ -1090,6 +1090,31 @@ export function pickWorstPieceToRemove(
 }
 
 // ---------------------------------------------------------------------------
+// aiShouldSkipRedeploy — returns true if the AI should skip a redeploy
+// (all on-board pieces are too valuable to sacrifice for a new build).
+// Easy AI never skips; medium/hard skip if even the least-valuable piece
+// has a high scoreSpace value.
+// ---------------------------------------------------------------------------
+export function aiShouldSkipRedeploy(
+  pieces: { pieceId: string; spaceId: string }[],
+  country: Country,
+  state: GameState,
+  difficulty: 'easy' | 'medium' | 'hard'
+): boolean {
+  if (difficulty === 'easy') return false;
+  if (pieces.length === 0) return true;
+
+  let worstScore = Infinity;
+  for (const p of pieces) {
+    const s = scoreSpace(p.spaceId, country, state);
+    if (s < worstScore) worstScore = s;
+  }
+  // Higher threshold = more willing to sacrifice (skips less often)
+  const threshold = difficulty === 'hard' ? 20 : 15;
+  return worstScore > threshold;
+}
+
+// ---------------------------------------------------------------------------
 // aiBestPieceToEliminate – when an AI attacker faces multiple enemy pieces in
 // the same space, pick the one that is most costly for the enemy to lose.
 // Higher priority goes to pieces with the fewest reserves (harder to replace).

@@ -114,6 +114,7 @@ import {
   aiChooseEventEffect,
   aiShouldTriggerDefenseOfMotherland,
   aiBestPieceToEliminate,
+  aiShouldSkipRedeploy,
 } from './ai';
 
 export interface PlayerConfig {
@@ -181,6 +182,7 @@ interface GameStoreActions {
   resolveRationingChoice: (accept: boolean) => void;
   confirmRecruitCountry: (country: Country) => void;
   confirmRedeploy: (pieceId: string) => void;
+  skipRedeploy: () => void;
   selectMovePiece: (pieceId: string) => void;
   skipMovePieces: () => void;
   selectBattlePiece: (pieceId: string) => void;
@@ -992,9 +994,14 @@ function processOffensiveResult(
         });
         return;
       }
-      // AI: remove the least-valuable piece (lowest scoreSpace) and place in target space
+      // AI: check if it's worth sacrificing a piece; skip if all pieces are too valuable
       const pieces = ns.countries[country].piecesOnBoard.filter((p) => p.type === pieceType);
-      const worstId = pickWorstPieceToRemove(pieces.map((p) => ({ pieceId: p.id, spaceId: p.spaceId })), country, ns);
+      const pieceMappings = pieces.map((p) => ({ pieceId: p.id, spaceId: p.spaceId }));
+      const aiDiff = ns.countries[country].aiDifficulty;
+      if (aiShouldSkipRedeploy(pieceMappings, country, ns, aiDiff)) {
+        ns = addLogEntry(ns, country, `${card.name}: declined to redeploy — all ${pieceType === 'navy' ? 'navies' : 'armies'} too valuable`);
+      } else {
+      const worstId = pickWorstPieceToRemove(pieceMappings, country, ns);
       const remove = pieces.find((p) => p.id === worstId);
       if (remove) {
         const removedSpaceName = getSpace(remove.spaceId)?.name ?? remove.spaceId;
@@ -1021,6 +1028,7 @@ function processOffensiveResult(
         };
         ns = addLogEntry(ns, country, `${card.name}: redeployed ${pieceType} from ${removedSpaceName} to ${getSpace(targetSpaceId)?.name ?? targetSpaceId}`);
         chainTrigger = { type: pieceType === 'navy' ? 'build_navy' : 'build_army', spaceId: targetSpaceId, builtPieceId: newPiece.id };
+      }
       }
     }
   }
@@ -2589,29 +2597,41 @@ export const useGameStore = create<GameStore>((set, get) => ({
             logged = ns2;
           }
         } else {
+          if (altPA.type === 'SELECT_PIECE_TO_REDEPLOY') {
+            const rdCtry = altPA.redeployCountry;
+            const pieceMappings = altPA.piecesOnBoard;
+            if (aiShouldSkipRedeploy(pieceMappings, rdCtry, logged, diff)) {
+              logged = addLogEntry(logged, rdCtry, `Declined to redeploy — all ${altPA.pieceType === 'navy' ? 'navies' : 'armies'} too valuable`);
+            } else {
+              const res = aiResolvePendingAction(logged, altPA, diff);
+              if (typeof res === 'string' && res) {
+                let ns = logged;
+                const rmPiece = ns.countries[rdCtry].piecesOnBoard.find((p) => p.id === res);
+                if (rmPiece) {
+                  ns = { ...ns, countries: { ...ns.countries, [rdCtry]: { ...ns.countries[rdCtry], piecesOnBoard: ns.countries[rdCtry].piecesOnBoard.filter((p) => p.id !== res) } } };
+                  ns = addLogEntry(ns, rdCtry, `Removed ${altPA.pieceType} from ${getSpace(rmPiece.spaceId)?.name ?? rmPiece.spaceId} for redeployment`);
+                  const validSpaces = getValidBuildLocations(rdCtry, altPA.pieceType, ns);
+                  if (validSpaces.length > 0) {
+                    const buildLoc = pickBestBuildLocation(validSpaces, rdCtry, ns, diff);
+                    ns = resolveBuildAction(buildLoc, altPA.pieceType, rdCtry, ns);
+                    ns = addLogEntry(ns, rdCtry, `Built ${altPA.pieceType} in ${buildLoc.replace(/_/g, ' ')}`);
+                  }
+                }
+                logged = ns;
+              }
+            }
+          } else {
           const res = aiResolvePendingAction(logged, altPA, diff);
           if (typeof res === 'string' && res) {
             let ns = logged;
-            if (altPA.type === 'SELECT_PIECE_TO_REDEPLOY') {
-              const rdCtry = altPA.redeployCountry;
-              const rmPiece = ns.countries[rdCtry].piecesOnBoard.find((p) => p.id === res);
-              if (rmPiece) {
-                ns = { ...ns, countries: { ...ns.countries, [rdCtry]: { ...ns.countries[rdCtry], piecesOnBoard: ns.countries[rdCtry].piecesOnBoard.filter((p) => p.id !== res) } } };
-                ns = addLogEntry(ns, rdCtry, `Removed ${altPA.pieceType} from ${getSpace(rmPiece.spaceId)?.name ?? rmPiece.spaceId} for redeployment`);
-                const validSpaces = getValidBuildLocations(rdCtry, altPA.pieceType, ns);
-                if (validSpaces.length > 0) {
-                  const buildLoc = pickBestBuildLocation(validSpaces, rdCtry, ns, diff);
-                  ns = resolveBuildAction(buildLoc, altPA.pieceType, rdCtry, ns);
-                  ns = addLogEntry(ns, rdCtry, `Built ${altPA.pieceType} in ${buildLoc.replace(/_/g, ' ')}`);
-                }
-              }
-            } else if (altPA.type === 'SELECT_BUILD_LOCATION') {
+            if (altPA.type === 'SELECT_BUILD_LOCATION') {
               ns = resolveBuildAction(res, altPA.pieceType, country, ns);
               ns = addLogEntry(ns, country, `Built ${altPA.pieceType} in ${res.replace(/_/g, ' ')}`);
             } else if (altPA.type === 'SELECT_BATTLE_TARGET') {
               ns = resolveBattleAction(res, country, ns);
             }
             logged = ns;
+          }
           }
         }
       }
@@ -3075,6 +3095,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
             if (proceedAfterAction(ns, set, get)) return;
           } else if (pendingAction.type === 'SELECT_PIECE_TO_REDEPLOY') {
             const rdCountry = pendingAction.redeployCountry;
+            const pieceMappings = pendingAction.piecesOnBoard;
+            if (aiShouldSkipRedeploy(pieceMappings, rdCountry, ns, diff)) {
+              ns = addLogEntry(ns, rdCountry, `Declined to redeploy — all ${pendingAction.pieceType === 'navy' ? 'navies' : 'armies'} too valuable`);
+            } else {
             const removePiece = ns.countries[rdCountry].piecesOnBoard.find((p) => p.id === res);
             if (removePiece) {
               const rmName = getSpace(removePiece.spaceId)?.name ?? removePiece.spaceId.replace(/_/g, ' ');
@@ -3140,6 +3164,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
                   if (tryOfferOffensiveResponse(buildTrigger, buildLoc, rdCountry, ns, set, get)) return;
                 }
               }
+            }
             }
             if (proceedAfterAction(ns, set, get)) return;
           } else if (pendingAction.type === 'SELECT_BUILD_LOCATION') {
@@ -4282,6 +4307,47 @@ export const useGameStore = create<GameStore>((set, get) => ({
         buildCountry: redeployCountry,
       },
     });
+  },
+
+  skipRedeploy: () => {
+    const s = gs(get());
+    const pa = s.pendingAction;
+    if (!pa || pa.type !== 'SELECT_PIECE_TO_REDEPLOY') return;
+
+    let ns: GameState = { ...s, pendingAction: null };
+    ns = addLogEntry(ns, pa.redeployCountry, `Declined to redeploy ${pa.pieceType}`);
+
+    // BUILD_AFTER_BATTLE: skip the bonus build, proceed to supply
+    if (pa.targetSpaceId) {
+      set({ ...ns });
+      goToSupplyStep(ns, set, get);
+      return;
+    }
+
+    // Event card recruit: skip this recruit, continue remaining effects
+    if (pa.currentEffect && pa.eventCardName && pa.playingCountry != null) {
+      const remaining = pa.remainingEffects ?? [];
+      if (remaining.length > 0) {
+        const result = processEventEffects(remaining, pa.eventCardName, pa.playingCountry, ns);
+        if (result.pendingAction) {
+          set({ ...result.newState, pendingAction: result.pendingAction });
+          return;
+        }
+        if (result.eventBuildInfo) {
+          if (handleEventBuildTrigger(result.eventBuildInfo, result.newState, set, get)) return;
+        }
+        set({ ...result.newState, pendingAction: null });
+        goToSupplyStep(result.newState, set, get);
+        return;
+      }
+      set({ ...ns });
+      goToSupplyStep(ns, set, get);
+      return;
+    }
+
+    // Normal BUILD card: just go to supply
+    set({ ...ns });
+    goToSupplyStep(ns, set, get);
   },
 
   selectMovePiece: (pieceId: string) => {
