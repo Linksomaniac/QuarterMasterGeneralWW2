@@ -11,6 +11,7 @@ import {
   PendingAction,
   Team,
   TURN_ORDER,
+  MAX_ROUNDS,
   getTeam,
 } from './types';
 import { getCountryDeck } from './cards';
@@ -2345,9 +2346,21 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (isEndOfRound) {
       const w = checkSuddenVictory(ns);
       if (w) { set({ ...ns, phase: GamePhase.GAME_OVER, winner: w, selectedDiscards: new Set() }); return; }
+      // End of game after round 20 — Axis wins on a tie
+      if (ns.round >= MAX_ROUNDS) {
+        const winner = ns.axisVP >= ns.alliesVP ? Team.AXIS : Team.ALLIES;
+        set({ ...ns, phase: GamePhase.GAME_OVER, winner, selectedDiscards: new Set() });
+        return;
+      }
     }
 
     let advanced = advanceTurn(ns);
+    // Safety: if advanceTurn flagged GAME_OVER (shouldn't reach here but just in case)
+    if (advanced.phase === GamePhase.GAME_OVER) {
+      const winner = advanced.axisVP >= advanced.alliesVP ? Team.AXIS : Team.ALLIES;
+      set({ ...advanced, winner, selectedDiscards: new Set() });
+      return;
+    }
     const nextCountry = getCurrentCountry(advanced);
 
     const spCard = findSuperiorPlanningOpportunity(nextCountry, advanced);
@@ -3725,6 +3738,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
         }
       }
       const advanced = advanceTurn(ns);
+      if (advanced.phase === GamePhase.GAME_OVER) {
+        const winner = advanced.axisVP >= advanced.alliesVP ? Team.AXIS : Team.ALLIES;
+        set({ ...advanced, winner, selectedDiscards: new Set() });
+        return;
+      }
       set({ ...advanced, selectedDiscards: new Set() });
       setTimeout(() => {
         const store = get();
