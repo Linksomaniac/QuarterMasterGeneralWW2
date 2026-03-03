@@ -35,8 +35,10 @@ function countByType(cards: Card[]): Record<CardType, number> {
 function VPTrack() {
   const axisVP = useGameStore((s) => s.axisVP);
   const alliesVP = useGameStore((s) => s.alliesVP);
-  const maxVP = Math.max(axisVP, alliesVP, 50);
   const diff = axisVP - alliesVP;
+  const total = axisVP + alliesVP;
+  // Split bar: each side gets its proportional share. At 0-0, show 50/50.
+  const axisPct = total > 0 ? (axisVP / total) * 100 : 50;
 
   return (
     <div className="bg-[#0F1C2E] rounded-lg p-3 border border-[#1A3A5A]">
@@ -56,15 +58,14 @@ function VPTrack() {
           <div className="w-2 h-2 rounded-full bg-blue-500" />
         </div>
       </div>
-      {/* Stacked progress bar */}
-      <div className="relative h-3 bg-[#1A2A3A] rounded-full overflow-hidden">
+      {/* Split progress bar */}
+      <div className="relative h-3 bg-[#1A2A3A] rounded-full overflow-hidden flex">
         <div
-          className="absolute left-0 top-0 h-full bg-gradient-to-r from-red-700 to-red-500 transition-all duration-500"
-          style={{ width: `${Math.min(100, (axisVP / maxVP) * 100)}%` }}
+          className="h-full bg-gradient-to-r from-red-700 to-red-500 transition-all duration-500"
+          style={{ width: `${axisPct}%` }}
         />
         <div
-          className="absolute right-0 top-0 h-full bg-gradient-to-l from-blue-700 to-blue-500 transition-all duration-500"
-          style={{ width: `${Math.min(100, (alliesVP / maxVP) * 100)}%` }}
+          className="h-full bg-gradient-to-r from-blue-500 to-blue-700 transition-all duration-500 flex-1"
         />
       </div>
       {/* Difference indicator */}
