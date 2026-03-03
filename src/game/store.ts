@@ -139,6 +139,12 @@ export interface ActionContext {
   playedCard?: Card;
   additionalBattleCard?: Card;
   additionalBattleCountry?: Country;
+  /** Saved original trigger so resumeChain can continue offering offensive
+   *  responses after chain build reactions (e.g. Rasputitsa) resolve. */
+  pendingOriginalTrigger?: {
+    type: 'battle_land' | 'battle_sea' | 'build_army' | 'build_navy';
+    spaceId: string;
+  };
   eventContinuation?: {
     remainingEffects: CardEffect[];
     eventCardName: string;
@@ -735,6 +741,13 @@ function resumeChain(
 ): void {
   const ctx = get().actionContext;
   if (!ctx?.chainTrigger) {
+    // No more chain triggers — check if there's a pending original trigger
+    // (e.g. after Blitzkrieg build → Rasputitsa resolved, continue with Dive Bombers)
+    if (ctx?.pendingOriginalTrigger) {
+      const { type: origType, spaceId: origSpace } = ctx.pendingOriginalTrigger;
+      set({ actionContext: { ...ctx, pendingOriginalTrigger: undefined } });
+      if (tryOfferOffensiveResponse(origType, origSpace, ctx.country, state, set, get, ctx.usedOffensiveIds)) return;
+    }
     if (proceedAfterAction(state, set, get)) return;
     goToSupplyStep(state, set, get);
     return;
@@ -746,6 +759,14 @@ function resumeChain(
   if (checkChainBuildReactions(chainTrigger, ctx.country, chainUsedIds, state, set, get)) return;
 
   if (tryOfferOffensiveResponse(chainTrigger.type, chainTrigger.spaceId, ctx.country, state, set, get, chainUsedIds)) return;
+
+  // After chain trigger resolved, check pending original trigger
+  const freshCtx = get().actionContext;
+  if (freshCtx?.pendingOriginalTrigger) {
+    const { type: origType, spaceId: origSpace } = freshCtx.pendingOriginalTrigger;
+    set({ actionContext: { ...freshCtx, pendingOriginalTrigger: undefined } });
+    if (tryOfferOffensiveResponse(origType, origSpace, freshCtx.country, state, set, get, freshCtx.usedOffensiveIds)) return;
+  }
 
   if (proceedAfterAction(state, set, get)) return;
   goToSupplyStep(state, set, get);
@@ -1101,8 +1122,8 @@ function finishOffensiveChain(
       ? (ctx.battleType === 'sea' ? 'battle_sea' as const : 'battle_land' as const)
       : (ctx.builtPieceType === 'army' ? 'build_army' as const : 'build_navy' as const);
 
-    if (tryOfferOffensiveResponse(triggerType, ctx.spaceId, country, ns, set, get, usedIds)) return;
-
+    // STEP 1: Handle pending elimination from the current offensive response
+    // (e.g. Dive Bombers additional battle killed an enemy piece)
     if (pendingElim && chainTrigger) {
       set({
         actionContext: {
@@ -1111,12 +1132,18 @@ function finishOffensiveChain(
           chainTrigger,
           chainUsedIds: usedIds,
           chainPendingElimination: pendingElim,
+          // Save original trigger so resumeChain can continue offering
+          // offensive responses after elimination + build reactions resolve
+          pendingOriginalTrigger: { type: triggerType, spaceId: ctx.spaceId },
         },
       });
       handleChainElimination(pendingElim, country, ns, set, get);
       return;
     }
 
+    // STEP 2: Handle build reactions BEFORE offering more offensive responses.
+    // This ensures cards like Rasputitsa trigger immediately after a chain build
+    // (e.g. Blitzkrieg builds army → Rasputitsa fires) before Dive Bombers etc.
     if (chainTrigger && (chainTrigger.type === 'build_army' || chainTrigger.type === 'build_navy')) {
       set({
         actionContext: {
@@ -1124,12 +1151,20 @@ function finishOffensiveChain(
           usedOffensiveIds: usedIds,
           chainTrigger,
           chainUsedIds: usedIds,
+          // Save original trigger so resumeChain can continue offering
+          // offensive responses after build reactions resolve
+          pendingOriginalTrigger: { type: triggerType, spaceId: ctx.spaceId },
         },
       });
       if (checkChainBuildReactions(chainTrigger, country, usedIds, ns, set, get)) return;
       if (tryOfferOffensiveResponse(chainTrigger.type, chainTrigger.spaceId, country, ns, set, get, usedIds)) return;
     }
 
+    // STEP 3: Offer more offensive responses for the ORIGINAL trigger type
+    // (e.g. after Blitzkrieg build reactions resolved, offer Dive Bombers)
+    if (tryOfferOffensiveResponse(triggerType, ctx.spaceId, country, ns, set, get, usedIds)) return;
+
+    // STEP 4: If chainTrigger type differs from original, offer responses for it too
     if (chainTrigger && chainTrigger.type !== triggerType) {
       if (tryOfferOffensiveResponse(chainTrigger.type, chainTrigger.spaceId, country, ns, set, get, usedIds)) return;
     }
