@@ -36,9 +36,9 @@ function VPTrack() {
   const axisVP = useGameStore((s) => s.axisVP);
   const alliesVP = useGameStore((s) => s.alliesVP);
   const diff = axisVP - alliesVP;
-  const total = axisVP + alliesVP;
-  // Split bar: each side gets its proportional share. At 0-0, show 50/50.
-  const axisPct = total > 0 ? (axisVP / total) * 100 : 50;
+  // Bar reflects the GAP, not the ratio. 30-point gap = sudden victory threshold.
+  // Center is 50%; ±30 gap maps to 95%/5%. Clamped so a sliver always shows.
+  const axisPct = Math.min(95, Math.max(5, 50 + (diff / 30) * 45));
 
   return (
     <div className="bg-[#0F1C2E] rounded-lg p-3 border border-[#1A3A5A]">
