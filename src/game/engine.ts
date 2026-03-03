@@ -737,6 +737,9 @@ function executeEventCard(card: Card, country: Country, state: GameState): GameS
     }
 
     if (effect.type === 'RECRUIT_ARMY' || (effect.type === 'BUILD_ARMY' && effect.where)) {
+      // Skip alternative play actions (e.g. American Volunteer Group discard-2-from-deck);
+      // these are activated during the play step, not when the status card is played.
+      if (effect.condition === 'discard_2_from_deck') continue;
       const buildCountry = effect.country ?? country;
       const maxCount = effect.count ?? 1;
       let built = 0;
@@ -2566,6 +2569,8 @@ export function findOffensiveResponses(
 
       if (effect.type === 'RECRUIT_ARMY') {
         if (effect.condition === 'after_italian_army_removed' || effect.condition === 'after_german_army_removed') continue;
+        // Alternative play actions (e.g. American Volunteer Group) are not offensive responses
+        if (effect.condition === 'discard_2_from_deck') continue;
         if (triggerType !== 'build_army') continue;
         const avail = getAvailablePieces(country, state);
         if (avail.armies <= 0) continue;
