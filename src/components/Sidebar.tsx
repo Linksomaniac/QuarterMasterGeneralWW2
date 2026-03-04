@@ -312,6 +312,13 @@ export default function Sidebar() {
           Return to Setup
         </button>
       )}
+
+      <a
+        href="mailto:nishitsaraf52@gmail.com?subject=QG%20WW2%20Bug%20Report"
+        className="text-[10px] text-gray-700 hover:text-board-supply transition-colors mt-1"
+      >
+        Report Bug
+      </a>
     </div>
   );
 }

@@ -195,8 +195,17 @@ export default function SetupScreen() {
           </button>
         </div>
 
-        <div className="mt-8 text-center text-gray-600 text-xs">
+        <div className="mt-8 text-center text-gray-600 text-xs space-y-1">
           <p>Based on the board game by Ian Brody &bull; Griggling Games</p>
+          <p>
+            Found a bug? Contact{' '}
+            <a
+              href="mailto:nishitsaraf52@gmail.com?subject=QG%20WW2%20Bug%20Report"
+              className="text-board-supply hover:text-yellow-400 underline transition-colors"
+            >
+              nishitsaraf52@gmail.com
+            </a>
+          </p>
         </div>
       </div>
     </div>
