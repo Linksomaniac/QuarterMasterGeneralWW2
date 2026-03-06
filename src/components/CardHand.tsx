@@ -184,6 +184,40 @@ function ResponsePrompt() {
 
     const responderColor = COUNTRY_COLORS[responder];
 
+    // Multiple responses available — show a list so the player can pick which to activate
+    if (pa.allResponses && pa.allResponses.length > 1) {
+      return (
+        <div className="bg-[#0A1628]/95 backdrop-blur rounded-t-xl border-t border-green-500/50 p-4">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="w-3 h-3 rounded-full animate-pulse" style={{ backgroundColor: responderColor }} />
+            <span className="text-sm font-display font-bold" style={{ color: responderColor }}>
+              {COUNTRY_NAMES[responder]}
+            </span>
+            <span className="text-xs text-gray-400">— Choose a response to activate</span>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {pa.allResponses.map((r) => (
+              <button
+                key={r.cardId}
+                onClick={() => respondToOpportunity(true, r.cardId)}
+                className="px-3 py-1.5 rounded bg-green-900/60 border border-green-700/50 hover:bg-green-700 transition-colors text-left"
+              >
+                <span className="text-xs font-bold text-yellow-400">{r.cardName}</span>
+                <span className="text-xs text-green-400 ml-1">{r.description}</span>
+              </button>
+            ))}
+            <button
+              onClick={() => respondToOpportunity(false)}
+              className="px-3 py-1.5 rounded bg-gray-700 text-gray-300 text-xs font-bold hover:bg-gray-600 transition-colors"
+            >
+              Decline All
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    // Single response — original compact UI
     return (
       <div className="bg-[#0A1628]/95 backdrop-blur rounded-t-xl border-t border-green-500/50 p-4">
         <div className="flex items-center justify-between">

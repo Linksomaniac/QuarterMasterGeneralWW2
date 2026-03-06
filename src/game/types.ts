@@ -268,6 +268,7 @@ export type PendingAction =
       responseCardName: string;
       triggerSpaceId: string;
       description: string;
+      allResponses?: { cardId: string; cardName: string; description: string }[];
     }
   | {
       type: 'EW_COUNTER_OPPORTUNITY';

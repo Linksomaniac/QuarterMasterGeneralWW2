@@ -166,7 +166,7 @@ interface GameStoreActions {
   advanceToNextPhase: () => void;
   resetGame: () => void;
   toggleCardForDiscard: (cardId: string) => void;
-  respondToOpportunity: (accept: boolean) => void;
+  respondToOpportunity: (accept: boolean, selectedCardId?: string) => void;
   useAlternativeAction: (statusCardId: string) => void;
   selectEWTarget: (targetCountry: Country) => void;
   selectLendLeaseTarget: (targetCountry: Country) => void;
@@ -253,6 +253,7 @@ function tryOfferOffensiveResponse(
   if (offensives.length === 0) return false;
 
   const off = offensives[0];
+  const isHuman = state.countries[country].isHuman;
   set({
     ...state,
     phase: GamePhase.AWAITING_RESPONSE,
@@ -263,10 +264,14 @@ function tryOfferOffensiveResponse(
       responseCardName: off.card.name,
       triggerSpaceId,
       description: off.description,
+      // For human players with multiple options, include the full list
+      allResponses: isHuman && offensives.length > 1
+        ? offensives.map((o) => ({ cardId: o.card.id, cardName: o.card.name, description: o.description }))
+        : undefined,
     },
   });
 
-  if (!state.countries[country].isHuman) {
+  if (!isHuman) {
     setTimeout(() => {
       get().respondToOpportunity(true);
     }, AI_DELAY);
@@ -3275,7 +3280,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
    }
   },
 
-  respondToOpportunity: (accept) => {
+  respondToOpportunity: (accept, selectedCardId) => {
     const s = gs(get());
     const pa = s.pendingAction;
     if (!pa) { console.warn('[AI] respondToOpportunity called with no pendingAction'); return; }
@@ -3325,11 +3330,13 @@ export const useGameStore = create<GameStore>((set, get) => ({
       let ns = s;
       const country = pa.responseCountry;
       const ctx = get().actionContext;
-      const usedIds = [...(ctx?.usedOffensiveIds ?? []), pa.responseCardId];
+      // Use the player-selected card if provided, otherwise fall back to the default
+      const chosenCardId = selectedCardId ?? pa.responseCardId;
+      const usedIds = [...(ctx?.usedOffensiveIds ?? []), chosenCardId];
 
       if (accept) {
-        const card = ns.countries[country].responseCards.find((c) => c.id === pa.responseCardId)
-          || ns.countries[country].statusCards.find((c) => c.id === pa.responseCardId);
+        const card = ns.countries[country].responseCards.find((c) => c.id === chosenCardId)
+          || ns.countries[country].statusCards.find((c) => c.id === chosenCardId);
         if (card) {
           const isStatusCard = card.type === CardType.STATUS;
           const handCostEffect = card.effects.find((e) => e.handCost);
