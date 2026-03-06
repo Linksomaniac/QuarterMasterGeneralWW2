@@ -1489,10 +1489,15 @@ function resolveMaltaForCountry(
       discard.push(deck.pop()!);
       discarded++;
     }
+    const vpLost = 2 - discarded;
     ns = { ...ns, countries: { ...ns.countries, [targetCountry]: { ...cs, deck, discard } } };
-    ns = addLogEntry(ns, playingCountry, discarded > 0
-      ? `Malta Submarines: ${COUNTRY_NAMES[targetCountry]} discards ${discarded} from deck`
-      : `Malta Submarines: ${COUNTRY_NAMES[targetCountry]} has no cards to discard`);
+    if (discarded > 0) {
+      ns = addLogEntry(ns, playingCountry, `Malta Submarines: ${COUNTRY_NAMES[targetCountry]} discards ${discarded} from deck`);
+    }
+    if (vpLost > 0) {
+      ns = { ...ns, axisVP: Math.max(0, ns.axisVP - vpLost) };
+      ns = addLogEntry(ns, playingCountry, `Malta Submarines: ${COUNTRY_NAMES[targetCountry]} deck empty — ${vpLost} VP lost`);
+    }
   }
   return ns;
 }

@@ -2141,10 +2141,17 @@ export function resolveMaltaSubmarines(
         discard.push(deck.pop()!);
         discarded++;
       }
+      const vpLost = count - discarded;
       ns = { ...ns, countries: { ...ns.countries, [targetCountry]: { ...cs, deck, discard } } };
-      ns = addLogEntry(ns, playingCountry, discarded > 0
-        ? `Malta Submarines: ${COUNTRY_NAMES[targetCountry]} discards ${discarded} from deck`
-        : `Malta Submarines: ${COUNTRY_NAMES[targetCountry]} has no cards to discard`);
+      if (discarded > 0) {
+        ns = addLogEntry(ns, playingCountry, `Malta Submarines: ${COUNTRY_NAMES[targetCountry]} discards ${discarded} from deck`);
+      }
+      if (vpLost > 0) {
+        const team = getTeam(targetCountry);
+        if (team === Team.AXIS) ns = { ...ns, axisVP: Math.max(0, ns.axisVP - vpLost) };
+        else ns = { ...ns, alliesVP: Math.max(0, ns.alliesVP - vpLost) };
+        ns = addLogEntry(ns, playingCountry, `Malta Submarines: ${COUNTRY_NAMES[targetCountry]} deck empty — ${vpLost} VP lost`);
+      }
     }
   }
   const cs = ns.countries[playingCountry];
