@@ -2011,16 +2011,13 @@ export const useGameStore = create<GameStore>((set, get) => ({
         }
       }
 
-      if (pa.baseWhere.length === 0) {
-        const ctx = get().actionContext;
-        if (ctx) {
-          const buildTrigger = pa.pieceType === 'army' ? 'build_army' as const : 'build_navy' as const;
-          set({ ...logged, pendingAction: null });
-          if (tryOfferOffensiveResponse(buildTrigger, spaceId, country, logged, set, get, ctx.usedOffensiveIds)) return;
-          if (proceedAfterAction(logged, set, get)) return;
-          goToSupplyStep(logged, set, get);
-          return;
-        }
+      const ctx = get().actionContext;
+      if (ctx) {
+        const buildTrigger = pa.pieceType === 'army' ? 'build_army' as const : 'build_navy' as const;
+        const chainTrigger: ChainTrigger = { type: buildTrigger, spaceId };
+        set({ ...logged, pendingAction: null });
+        finishOffensiveChain(logged, country, ctx.usedOffensiveIds, chainTrigger, undefined, set, get);
+        return;
       }
 
       set({ ...logged, pendingAction: null });
