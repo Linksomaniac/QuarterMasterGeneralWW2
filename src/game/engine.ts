@@ -2142,9 +2142,9 @@ export function resolveMaltaSubmarines(
         discarded++;
       }
       ns = { ...ns, countries: { ...ns.countries, [targetCountry]: { ...cs, deck, discard } } };
-      if (discarded > 0) {
-        ns = addLogEntry(ns, playingCountry, `Malta Submarines: ${COUNTRY_NAMES[targetCountry]} discards ${discarded} from deck`);
-      }
+      ns = addLogEntry(ns, playingCountry, discarded > 0
+        ? `Malta Submarines: ${COUNTRY_NAMES[targetCountry]} discards ${discarded} from deck`
+        : `Malta Submarines: ${COUNTRY_NAMES[targetCountry]} has no cards to discard`);
     }
   }
   const cs = ns.countries[playingCountry];

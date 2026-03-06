@@ -1490,9 +1490,9 @@ function resolveMaltaForCountry(
       discarded++;
     }
     ns = { ...ns, countries: { ...ns.countries, [targetCountry]: { ...cs, deck, discard } } };
-    if (discarded > 0) {
-      ns = addLogEntry(ns, playingCountry, `Malta Submarines: ${COUNTRY_NAMES[targetCountry]} discards ${discarded} from deck`);
-    }
+    ns = addLogEntry(ns, playingCountry, discarded > 0
+      ? `Malta Submarines: ${COUNTRY_NAMES[targetCountry]} discards ${discarded} from deck`
+      : `Malta Submarines: ${COUNTRY_NAMES[targetCountry]} has no cards to discard`);
   }
   return ns;
 }
@@ -1518,10 +1518,12 @@ function continueMaltaResolution(
   get: () => GameStore
 ) {
   let ns = state;
+  console.log(`[Malta] continueMaltaResolution called for ${remainingCountries.map((c) => COUNTRY_NAMES[c]).join(', ')}`);
 
   for (let i = 0; i < remainingCountries.length; i++) {
     const target = remainingCountries[i];
     const hasNavy = countryHasNavyInMed(target, ns);
+    console.log(`[Malta] Processing ${COUNTRY_NAMES[target]}: hasNavy=${hasNavy}, deckSize=${ns.countries[target].deck.length}, isHuman=${ns.countries[target].isHuman}`);
 
     if (!hasNavy) {
       ns = resolveMaltaForCountry(target, 'discard_cards', ewCard, playingCountry, ns);
@@ -3947,6 +3949,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
     const isMalta = pa.ewCard.effects.some((e: { condition?: string }) => e.condition === 'malta_submarines');
     if (isMalta) {
+      console.log(`[Malta] selectEWTarget: entering Malta resolution for ${COUNTRY_NAMES[country]}`);
       continueMaltaResolution(s, pa.ewCard, country, [Country.GERMANY, Country.ITALY], set, get);
       return;
     }
