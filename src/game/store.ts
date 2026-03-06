@@ -1433,7 +1433,8 @@ function continueBeginningOfTurnAfterMobileForce(
     }
   }
 
-  set({ ...advanced, selectedDiscards: new Set<string>() });
+  // Reset phase from AWAITING_RESPONSE back to PLAY_CARD so the human can act.
+  set({ ...advanced, phase: GamePhase.PLAY_STEP, selectedDiscards: new Set<string>() });
 
   setTimeout(() => {
     const store = get();
@@ -3449,7 +3450,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
         advanced = resolveDefenseOfMotherland(advanced);
       }
       // Declining keeps the card in responseCards for future turns.
-      set({ ...advanced, pendingAction: null, selectedDiscards: new Set<string>() });
+      // Reset phase from AWAITING_RESPONSE back to PLAY_CARD so the human can act.
+      set({ ...advanced, phase: GamePhase.PLAY_STEP, pendingAction: null, selectedDiscards: new Set<string>() });
       setTimeout(() => {
         const store = get();
         if (store.phase === GamePhase.GAME_OVER) return;
