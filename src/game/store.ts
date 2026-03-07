@@ -30,6 +30,7 @@ import {
   getCurrentCountry,
   advanceTurn,
   getAllPieces,
+  getAllPiecesWithMinorPowers,
   findProtectionResponses,
   activateProtectionResponse,
   findOffensiveResponses,
@@ -2149,7 +2150,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
     if (pa.type === 'SELECT_BATTLE_TARGET' && pa.validTargets.includes(spaceId)) {
       const spaceName = getSpace(spaceId)?.name ?? spaceId.replace(/_/g, ' ');
-      const allPieces = getAllPieces(s);
+      // Include minor power pieces (French/Chinese armies) so they appear as
+      // valid battle targets alongside regular enemy pieces.
+      const allPieces = getAllPiecesWithMinorPowers(s);
       const enemyTeam = getEnemyTeam(country);
       const enemyPieces = allPieces.filter(
         (p) => p.spaceId === spaceId && getTeam(p.country) === enemyTeam
@@ -2206,7 +2209,51 @@ export const useGameStore = create<GameStore>((set, get) => ({
         } else {
           // AI picks the most valuable enemy piece to eliminate.
           const bestPiece = aiBestPieceToEliminate(enemyPieces, s);
-          const responses = findProtectionResponses(spaceId, bestPiece.country, ns, bestPiece.type, bestPiece.id);
+          // Minor power virtual pieces (mp_...) can't be saved by protection
+          // responses or Air Defense — skip response checks for them.
+          const isMinorPowerPiece = bestPiece.id.startsWith('mp_');
+          if (!isMinorPowerPiece) {
+            const responses = findProtectionResponses(spaceId, bestPiece.country, ns, bestPiece.type, bestPiece.id);
+            if (responses.length > 0) {
+              const resp = responses[0];
+              set({
+                ...ns,
+                phase: GamePhase.AWAITING_RESPONSE,
+                pendingAction: {
+                  type: 'RESPONSE_OPPORTUNITY',
+                  responseCountry: resp.country,
+                  responseCardId: resp.card.id,
+                  responseCardName: resp.card.name,
+                  battleSpaceId: spaceId,
+                  eliminatedPieceId: bestPiece.id,
+                  eliminatedPieceCountry: bestPiece.country,
+                  attackingCountry: country,
+                },
+              });
+              if (!ns.countries[resp.country].isHuman) {
+                setTimeout(() => {
+                  get().respondToOpportunity(
+                    aiShouldActivateProtection(gs(get()), resp.card, spaceId, resp.country)
+                  );
+                }, AI_DELAY);
+              }
+              return;
+            }
+          }
+          proceedWithElimination(spaceId, country, bestPiece, ns, set, get);
+          return;
+        }
+      }
+
+      // Single enemy piece (or hasRemoveAll) — proceed as before.
+      const targetPiece = enemyPieces[0];
+
+      if (targetPiece) {
+        // Minor power virtual pieces (mp_...) can't be saved by protection
+        // responses — skip response checks for them.
+        const isMinorPowerTarget = targetPiece.id.startsWith('mp_');
+        if (!isMinorPowerTarget) {
+          const responses = findProtectionResponses(spaceId, targetPiece.country, ns, targetPiece.type, targetPiece.id);
           if (responses.length > 0) {
             const resp = responses[0];
             set({
@@ -2218,55 +2265,21 @@ export const useGameStore = create<GameStore>((set, get) => ({
                 responseCardId: resp.card.id,
                 responseCardName: resp.card.name,
                 battleSpaceId: spaceId,
-                eliminatedPieceId: bestPiece.id,
-                eliminatedPieceCountry: bestPiece.country,
+                eliminatedPieceId: targetPiece.id,
+                eliminatedPieceCountry: targetPiece.country,
                 attackingCountry: country,
               },
             });
             if (!ns.countries[resp.country].isHuman) {
               setTimeout(() => {
-                get().respondToOpportunity(
-                  aiShouldActivateProtection(gs(get()), resp.card, spaceId, resp.country)
+                const accept = aiShouldActivateProtection(
+                  gs(get()), resp.card, spaceId, resp.country
                 );
+                get().respondToOpportunity(accept);
               }, AI_DELAY);
             }
             return;
           }
-          proceedWithElimination(spaceId, country, bestPiece, ns, set, get);
-          return;
-        }
-      }
-
-      // Single enemy piece (or hasRemoveAll) — proceed as before.
-      const targetPiece = enemyPieces[0];
-
-      if (targetPiece) {
-        const responses = findProtectionResponses(spaceId, targetPiece.country, ns, targetPiece.type, targetPiece.id);
-        if (responses.length > 0) {
-          const resp = responses[0];
-          set({
-            ...ns,
-            phase: GamePhase.AWAITING_RESPONSE,
-            pendingAction: {
-              type: 'RESPONSE_OPPORTUNITY',
-              responseCountry: resp.country,
-              responseCardId: resp.card.id,
-              responseCardName: resp.card.name,
-              battleSpaceId: spaceId,
-              eliminatedPieceId: targetPiece.id,
-              eliminatedPieceCountry: targetPiece.country,
-              attackingCountry: country,
-            },
-          });
-          if (!ns.countries[resp.country].isHuman) {
-            setTimeout(() => {
-              const accept = aiShouldActivateProtection(
-                gs(get()), resp.card, spaceId, resp.country
-              );
-              get().respondToOpportunity(accept);
-            }, AI_DELAY);
-          }
-          return;
         }
       }
 

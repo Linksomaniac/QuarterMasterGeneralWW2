@@ -18,6 +18,7 @@ import {
   getValidBattleTargets,
   getAvailablePieces,
   getAllPieces,
+  getAllPiecesWithMinorPowers,
   getCurrentCountry,
   isInSupply,
   evaluateVPCondition,
@@ -416,11 +417,22 @@ function getCountryCardBonus(card: Card, country: Country, state: GameState, rou
       } else if (card.id === 'jpn_tw_bombing_chongqing') {
         bonus += hasChineseOnBoard ? 12 : 4;
       }
-      // Boost land battles when Chinese armies exist (to target them)
-      if (hasChineseOnBoard && card.type === CardType.LAND_BATTLE) bonus += 6;
+      // PRIORITY #1: Land battle when Chinese armies exist — this is the top priority
+      if (hasChineseOnBoard && card.type === CardType.LAND_BATTLE) {
+        // Check if Japan has an army adjacent to a Chinese army
+        const jpnArmies = state.countries[Country.JAPAN].piecesOnBoard.filter((p) => p.type === 'army');
+        const canReachChinese = tw.chineseArmies.some((mp) =>
+          jpnArmies.some((a) => getAdjacentSpaces(a.spaceId).includes(mp.spaceId))
+        );
+        bonus += canReachChinese ? 50 : 25;  // massive bonus when can reach, still high when can't
+      }
+      // Build army to position for attacking Chinese armies
+      if (hasChineseOnBoard && card.type === CardType.BUILD_ARMY) {
+        bonus += 25;  // build to get adjacent, then battle next turn
+      }
     }
 
-    // Germany: anti-France cards — eliminate French armies early
+    // Germany: anti-France cards — eliminate French armies ASAP (PRIORITY #1)
     if (country === Country.GERMANY) {
       if (card.id === 'ger_tw_fall_weiss') {
         bonus += hasFrenchOnBoard ? 15 : 4;
@@ -428,20 +440,31 @@ function getCountryCardBonus(card: Card, country: Country, state: GameState, rou
       } else if (card.id === 'ger_tw_ardennes_offensive') {
         bonus += tw.frenchArmies.some((p) => p.spaceId === 'western_europe') ? 14 : 6;
       }
-      // Boost land battles and army builds when French armies exist
-      if (hasFrenchOnBoard) {
-        if (card.type === CardType.LAND_BATTLE) bonus += 6;
-        if (card.type === CardType.BUILD_ARMY && isEarly) bonus += 4;
+      // PRIORITY #1: Land battle when French armies exist
+      if (hasFrenchOnBoard && card.type === CardType.LAND_BATTLE) {
+        const gerArmies = state.countries[Country.GERMANY].piecesOnBoard.filter((p) => p.type === 'army');
+        const canReachFrench = tw.frenchArmies.some((mp) =>
+          gerArmies.some((a) => getAdjacentSpaces(a.spaceId).includes(mp.spaceId))
+        );
+        bonus += canReachFrench ? 50 : 25;
+      }
+      // Build army to position for attacking French armies
+      if (hasFrenchOnBoard && card.type === CardType.BUILD_ARMY) {
+        bonus += 25;
       }
     }
 
-    // Italy: support anti-France efforts
+    // Italy: support anti-France efforts (PRIORITY #1 when France alive)
     if (country === Country.ITALY && hasFrenchOnBoard) {
-      if (card.type === CardType.LAND_BATTLE) bonus += 4;
+      if (card.type === CardType.LAND_BATTLE) {
+        const itaArmies = state.countries[Country.ITALY].piecesOnBoard.filter((p) => p.type === 'army');
+        const canReachFrench = tw.frenchArmies.some((mp) =>
+          itaArmies.some((a) => getAdjacentSpaces(a.spaceId).includes(mp.spaceId))
+        );
+        bonus += canReachFrench ? 45 : 20;
+      }
       if (card.type === CardType.BUILD_ARMY) {
-        // Build army to push into WE when France is there
-        const frenchInWE = tw.frenchArmies.some((p) => p.spaceId === 'western_europe');
-        if (frenchInWE) bonus += 5;
+        bonus += 20;
       }
     }
 
@@ -607,26 +630,26 @@ function getCountrySpaceBonus(spaceId: string, country: Country, state: GameStat
     const frenchHere = tw.frenchArmies.some((p) => p.spaceId === spaceId);
     const chineseHere = tw.chineseArmies.some((p) => p.spaceId === spaceId);
 
-    // Germany/Italy: prioritize spaces with French armies — eliminate them ASAP
+    // Germany/Italy: PRIORITY #1 — spaces with French armies must be taken
     if (country === Country.GERMANY || country === Country.ITALY) {
       if (frenchHere) {
-        bonus += 20;  // target French army positions
-        if (spaceId === 'western_europe') bonus += 15;  // WE is the key battleground
+        bonus += 40;  // massive priority on French army positions
+        if (spaceId === 'western_europe') bonus += 20;  // WE is the key battleground
       }
       if (isEarly && tw.frenchArmies.length > 0) {
         // Early urgency: western_europe is a priority regardless of French position
-        if (spaceId === 'western_europe') bonus += 10;
+        if (spaceId === 'western_europe') bonus += 15;
       }
     }
 
-    // Japan: prioritize spaces with Chinese armies — eliminate them ASAP
+    // Japan: PRIORITY #1 — spaces with Chinese armies must be taken
     if (country === Country.JAPAN) {
       if (chineseHere) {
-        bonus += 20;  // target Chinese army positions
-        if (spaceId === 'china' || spaceId === 'szechuan') bonus += 12;
+        bonus += 40;  // massive priority on Chinese army positions
+        if (spaceId === 'china' || spaceId === 'szechuan') bonus += 20;
       }
       if (isEarly && tw.chineseArmies.length > 0) {
-        if (spaceId === 'china' || spaceId === 'szechuan') bonus += 10;
+        if (spaceId === 'china' || spaceId === 'szechuan') bonus += 15;
       }
     }
 
@@ -1082,6 +1105,40 @@ function scoreCard(
       if (isHard && isEarly) score += 8;
       else if (isHard && isMid) score += 3;
       score += posBoost;
+
+      // TW: Axis MUST build toward minor power armies if they can't currently reach them.
+      // This is the "reallocate resources" logic — when land battle can't reach France/China,
+      // building an army to get adjacent is the top priority.
+      if (difficulty !== 'easy') {
+        const twBuild = getTWContext();
+        if (twBuild) {
+          const myArmies = state.countries[country].piecesOnBoard.filter((p) => p.type === 'army');
+          if ((country === Country.GERMANY || country === Country.ITALY) && twBuild.frenchArmies.length > 0) {
+            const canReach = twBuild.frenchArmies.some((mp) =>
+              myArmies.some((a) => getAdjacentSpaces(a.spaceId).includes(mp.spaceId))
+            );
+            if (!canReach) {
+              // Can't battle France yet — building toward it is critical
+              const canBuildAdjacent = twBuild.frenchArmies.some((mp) =>
+                locations.some((loc) => loc === mp.spaceId || getAdjacentSpaces(loc).includes(mp.spaceId))
+              );
+              score += canBuildAdjacent ? 40 : 15;
+            }
+          }
+          if (country === Country.JAPAN && twBuild.chineseArmies.length > 0) {
+            const canReach = twBuild.chineseArmies.some((mp) =>
+              myArmies.some((a) => getAdjacentSpaces(a.spaceId).includes(mp.spaceId))
+            );
+            if (!canReach) {
+              const canBuildAdjacent = twBuild.chineseArmies.some((mp) =>
+                locations.some((loc) => loc === mp.spaceId || getAdjacentSpaces(loc).includes(mp.spaceId))
+              );
+              score += canBuildAdjacent ? 40 : 15;
+            }
+          }
+        }
+      }
+
       return score + countryBonus;
     }
     case CardType.BUILD_NAVY: {
@@ -1113,7 +1170,8 @@ function scoreCard(
       // may include empty adjacent spaces when status cards like Blitzkrieg are active.
       const allLandTargets = getValidBattleTargets(country, 'land', state);
       const landEnemyTeam = getEnemyTeam(country);
-      const landAllPieces = getAllPieces(state);
+      // Include minor power pieces so French/Chinese armies count as valid targets
+      const landAllPieces = getAllPiecesWithMinorPowers(state);
       const targets = allLandTargets.filter((t) =>
         landAllPieces.some((p) => p.spaceId === t && p.type === 'army' && getTeam(p.country) === landEnemyTeam)
       );
@@ -1306,25 +1364,36 @@ export function aiBestPieceToEliminate(pieces: Piece[], state: GameState): Piece
   if (pieces.length === 0) throw new Error('aiBestPieceToEliminate: empty list');
   if (pieces.length === 1) return pieces[0];
 
+  // Check for minor power virtual pieces — these have IDs starting with "mp_"
+  // and should be prioritized since they score VP and can't be saved by Air Defense
+  const tw = getTWContext();
+
   let bestPiece = pieces[0];
   let bestScore = -Infinity;
 
   for (const p of pieces) {
     let score = 0;
-    const cs = state.countries[p.country];
 
-    // Fewer reserves of this piece type → harder for the enemy to replace → higher value
-    const totalOfType = cs.piecesOnBoard.filter((pb) => pb.type === p.type).length;
-    const maxOfType =
-      p.type === 'army' ? COUNTRY_PIECES[p.country].armies : COUNTRY_PIECES[p.country].navies;
-    const reserve = maxOfType - totalOfType;
-    score -= reserve; // lower reserve → less penalty → higher score
+    // Minor power virtual pieces (French/Chinese) get massive priority —
+    // they score VP every turn and are harder to rebuild
+    if (tw && p.id.startsWith('mp_')) {
+      score += 50;  // always prefer eliminating minor power pieces
+    } else {
+      const cs = state.countries[p.country];
 
-    // Slight bonus for navies (generally rarer and harder to build)
-    if (p.type === 'navy') score += 1;
+      // Fewer reserves of this piece type → harder for the enemy to replace → higher value
+      const totalOfType = cs.piecesOnBoard.filter((pb) => pb.type === p.type).length;
+      const maxOfType =
+        p.type === 'army' ? COUNTRY_PIECES[p.country].armies : COUNTRY_PIECES[p.country].navies;
+      const reserve = maxOfType - totalOfType;
+      score -= reserve; // lower reserve → less penalty → higher score
 
-    // Prefer pieces from countries with more pieces on board (more strategically active)
-    score += cs.piecesOnBoard.length;
+      // Slight bonus for navies (generally rarer and harder to build)
+      if (p.type === 'navy') score += 1;
+
+      // Prefer pieces from countries with more pieces on board (more strategically active)
+      score += cs.piecesOnBoard.length;
+    }
 
     if (score > bestScore) {
       bestScore = score;
@@ -1445,29 +1514,29 @@ export function pickBestBuildLocation(
     if (twBuild) {
       const adj = getAdjacentSpaces(spaceId);
 
-      // Germany/Italy: build adjacent to French armies to attack them next turn
+      // Germany/Italy: PRIORITY — build adjacent to French armies to attack them next turn
       if (country === Country.GERMANY || country === Country.ITALY) {
         const adjToFrench = twBuild.frenchArmies.some(
           (p) => p.spaceId === spaceId || adj.includes(p.spaceId)
         );
-        if (adjToFrench) score += 15;
+        if (adjToFrench) score += 35;
         // Extra bonus for building in WE when France is there
         if (spaceId === 'western_europe' &&
             twBuild.frenchArmies.some((p) => p.spaceId === 'western_europe')) {
-          score += 12;
+          score += 20;
         }
       }
 
-      // Japan: build adjacent to Chinese armies to attack them next turn
+      // Japan: PRIORITY — build adjacent to Chinese armies to attack them next turn
       if (country === Country.JAPAN) {
         const adjToChinese = twBuild.chineseArmies.some(
           (p) => p.spaceId === spaceId || adj.includes(p.spaceId)
         );
-        if (adjToChinese) score += 15;
+        if (adjToChinese) score += 35;
         // Extra bonus for building in China/Szechuan when Chinese armies present
         if ((spaceId === 'china' || spaceId === 'szechuan') &&
             twBuild.chineseArmies.some((p) => p.spaceId === 'china' || p.spaceId === 'szechuan')) {
-          score += 12;
+          score += 20;
         }
       }
 
@@ -1504,7 +1573,8 @@ export function pickBestBattleTarget(
     return validTargets[Math.floor(Math.random() * validTargets.length)];
   }
 
-  const allPieces = getAllPieces(state);
+  // Include minor power pieces so AI can see French/Chinese armies as valid targets
+  const allPieces = getAllPiecesWithMinorPowers(state);
   const enemyTeam = getEnemyTeam(country);
   const vpTargets = getVPTargetSpaces(country, state);
   let bestTarget = validTargets[0];
@@ -1604,18 +1674,18 @@ export function pickBestBattleTarget(
       const frenchHere = twBattle.frenchArmies.some((p) => p.spaceId === spaceId);
       const chineseHere = twBattle.chineseArmies.some((p) => p.spaceId === spaceId);
 
-      // Germany/Italy: prioritize battling in spaces with French armies
+      // Germany/Italy: PRIORITY #1 — battle French armies (massive bonus)
       if ((country === Country.GERMANY || country === Country.ITALY) && frenchHere) {
-        score += 25;
-        if (spaceId === 'western_europe') score += 15;
-        if (isEarlyBattle) score += 10;
+        score += 60;
+        if (spaceId === 'western_europe') score += 20;
+        if (isEarlyBattle) score += 15;
       }
 
-      // Japan: prioritize battling in spaces with Chinese armies
+      // Japan: PRIORITY #1 — battle Chinese armies (massive bonus)
       if (country === Country.JAPAN && chineseHere) {
-        score += 25;
-        if (spaceId === 'china' || spaceId === 'szechuan') score += 12;
-        if (isEarlyBattle) score += 10;
+        score += 60;
+        if (spaceId === 'china' || spaceId === 'szechuan') score += 20;
+        if (isEarlyBattle) score += 15;
       }
 
       // UK: prioritize battling enemies near French armies (defend France)

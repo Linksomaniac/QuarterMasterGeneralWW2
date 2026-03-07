@@ -297,7 +297,7 @@ export type PendingAction =
       eventCardName: string;
       prompt: string;
       validSpaces: string[];
-      effectAction: 'recruit_army' | 'recruit_navy' | 'build_army' | 'build_navy' | 'land_battle' | 'sea_battle' | 'eliminate_army' | 'eliminate_navy';
+      effectAction: 'recruit_army' | 'recruit_navy' | 'build_army' | 'build_navy' | 'land_battle' | 'sea_battle' | 'eliminate_army' | 'eliminate_navy' | 'build_french_army' | 'build_chinese_army' | 'build_french_navy';
       effectCountry: Country;
       playingCountry: Country;
       remaining: number;

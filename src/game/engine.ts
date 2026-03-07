@@ -35,6 +35,8 @@ import {
   SPACES,
   spaceMatchesWhere,
 } from './mapData';
+import { useTotalWarStore } from './totalwar/store';
+import type { MinorPowerPiece, MinorPower } from './totalwar/types';
 
 // ---------------------------------------------------------------------------
 // Piece ID generation
@@ -42,6 +44,44 @@ import {
 let pieceIdCounter = 0;
 export function generatePieceId(): string {
   return `piece_${++pieceIdCounter}_${Date.now()}`;
+}
+
+// ---------------------------------------------------------------------------
+// Minor power piece helpers — returns TW minor power pieces as virtual Piece
+// objects so the base engine can reason about them (battle targets, etc.)
+// ---------------------------------------------------------------------------
+
+/** Map minor power to its controller for team lookup */
+const MINOR_POWER_TEAM: Record<string, Team> = {
+  FRANCE: Team.ALLIES,
+  CHINA: Team.ALLIES,
+};
+const MINOR_POWER_CONTROLLER_COUNTRY: Record<string, Country> = {
+  FRANCE: Country.UK,
+  CHINA: Country.USA,
+};
+
+/**
+ * Returns minor power pieces as virtual Piece objects that look like regular
+ * pieces owned by their controller country. This lets getValidBattleTargets()
+ * and resolveBattleAction() see them as valid enemy targets.
+ */
+export function getMinorPowerPiecesAsVirtual(): Piece[] {
+  const tw = useTotalWarStore.getState();
+  if (!tw.enabled) return [];
+  return tw.minorPowerPieces.map((mp) => ({
+    id: mp.id,
+    country: MINOR_POWER_CONTROLLER_COUNTRY[mp.minorPower] ?? Country.UK,
+    type: mp.type,
+    spaceId: mp.spaceId,
+  }));
+}
+
+/**
+ * Like getAllPieces but also includes minor power pieces.
+ */
+export function getAllPiecesWithMinorPowers(state: GameState): Piece[] {
+  return [...getAllPieces(state), ...getMinorPowerPiecesAsVirtual()];
 }
 
 // ---------------------------------------------------------------------------
@@ -269,7 +309,7 @@ export function getValidRecruitSpaces(
   const expandedSpaces = effect.condition === 'adjacent_or_in'
     ? [...new Set(targetSpaces.flatMap((s) => [s, ...getAdjacentSpaces(s)]))]
     : targetSpaces;
-  const allPcs = getAllPieces(state);
+  const allPcs = getAllPiecesWithMinorPowers(state);
   return expandedSpaces.filter((sid) => {
     const sp = getSpace(sid);
     if (!sp || sp.type !== spaceType) return false;
@@ -293,7 +333,8 @@ export function getValidBuildLocations(
 
   const homeSpace = HOME_SPACES[country];
   const countryPieces = state.countries[country].piecesOnBoard;
-  const allPieces = getAllPieces(state);
+  // Include minor power pieces so Axis can't build where French/Chinese armies are
+  const allPieces = getAllPiecesWithMinorPowers(state);
   const enemyTeam = getEnemyTeam(country);
   const allPieceSpaceIds = new Set(countryPieces.map((p) => p.spaceId));
 
@@ -420,7 +461,8 @@ export function getValidBattleTargets(
   const spaceType = battleType === 'land' ? SpaceType.LAND : SpaceType.SEA;
   const countryPieces = state.countries[country].piecesOnBoard;
   const enemyTeam = getEnemyTeam(country);
-  const allPieces = getAllPieces(state);
+  // Include minor power pieces so Axis can target French/Chinese armies
+  const allPieces = getAllPiecesWithMinorPowers(state);
   const enemyPieces = allPieces.filter((p) => getTeam(p.country) === enemyTeam && p.type === pieceType);
 
   const pieceSpaceIds = new Set(countryPieces.map((p) => p.spaceId));
@@ -1037,10 +1079,11 @@ function getEffectValidSpaces(
   effect: CardEffect,
   country: Country,
   state: GameState
-): { action: 'recruit_army' | 'recruit_navy' | 'build_army' | 'build_navy' | 'land_battle' | 'sea_battle' | 'eliminate_army' | 'eliminate_navy'; spaces: string[]; effectCountry: Country; prompt: string; count: number; skippable: boolean } | null {
+): { action: 'recruit_army' | 'recruit_navy' | 'build_army' | 'build_navy' | 'land_battle' | 'sea_battle' | 'eliminate_army' | 'eliminate_navy' | 'build_french_army' | 'build_chinese_army' | 'build_french_navy'; spaces: string[]; effectCountry: Country; prompt: string; count: number; skippable: boolean } | null {
   const effectCountry = effect.country ?? country;
   const enemyTeam = getEnemyTeam(country);
-  const allPcs = getAllPieces(state);
+  // Include minor power pieces so Axis can't build/recruit where French/Chinese are
+  const allPcs = getAllPiecesWithMinorPowers(state);
 
   if (effect.type === 'RECRUIT_ARMY' && effect.where) {
     const avail = getAvailablePieces(effectCountry, state);
@@ -1146,6 +1189,103 @@ function getEffectValidSpaces(
     );
     const count = effect.count ?? 1;
     return valid.length > 0 ? { action: 'eliminate_army', spaces: valid, effectCountry: country, prompt: `Eliminate enemy army`, count, skippable: count > 1 } : null;
+  }
+
+  // --- Minor power conditions: french_battle, chinese_battle ---
+  // Battle FROM a French/Chinese army into an adjacent land space with enemies
+  if (effect.type === 'LAND_BATTLE' && (effect.condition === 'french_battle' || effect.condition === 'chinese_battle')) {
+    const tw = useTotalWarStore.getState();
+    if (!tw.enabled) return null;
+    const minorPower: MinorPower = effect.condition === 'french_battle' ? 'FRANCE' : 'CHINA';
+    const myTeam = getTeam(country);  // country = UK or USA (the controller)
+    const mpArmies = tw.minorPowerPieces.filter((mp) => mp.minorPower === minorPower && mp.type === 'army');
+    if (mpArmies.length === 0) return null;
+
+    // Find all enemy-occupied land spaces adjacent to any minor power army
+    const allWithMinor = getAllPiecesWithMinorPowers(state);
+    const valid = new Set<string>();
+    for (const army of mpArmies) {
+      for (const adj of getAdjacentSpaces(army.spaceId)) {
+        const sp = getSpace(adj);
+        if (sp?.type !== SpaceType.LAND) continue;
+        // Check for regular enemy pieces or enemy minor power pieces
+        const hasEnemy = allWithMinor.some(
+          (p) => p.spaceId === adj && p.type === 'army' && getTeam(p.country) !== myTeam
+        );
+        if (hasEnemy) valid.add(adj);
+      }
+    }
+    return valid.size > 0
+      ? { action: 'land_battle' as const, spaces: Array.from(valid), effectCountry: country, prompt: `${minorPower === 'FRANCE' ? 'French' : 'Chinese'} battle a land space`, count: 1, skippable: false }
+      : null;
+  }
+
+  // --- Minor power conditions: build_french_army, build_chinese_army ---
+  // Build a minor power army adjacent to an existing minor power piece (or in home if no pieces)
+  if (effect.type === 'BUILD_ARMY' && (effect.condition === 'build_french_army' || effect.condition === 'build_chinese_army')) {
+    const tw = useTotalWarStore.getState();
+    if (!tw.enabled) return null;
+    const minorPower: MinorPower = effect.condition === 'build_french_army' ? 'FRANCE' : 'CHINA';
+    const limits = { FRANCE: { armies: 3, navies: 2 }, CHINA: { armies: 2, navies: 0 } };
+    const mpPieces = tw.minorPowerPieces.filter((mp) => mp.minorPower === minorPower);
+    const armyCount = mpPieces.filter((mp) => mp.type === 'army').length;
+    if (armyCount >= limits[minorPower].armies) return null;  // at max
+
+    const allWithMinor = getAllPiecesWithMinorPowers(state);
+    const valid = new Set<string>();
+
+    if (mpPieces.length === 0) {
+      // No pieces on board — can build in home space only
+      const home = minorPower === 'FRANCE' ? 'western_europe' : 'china';
+      const altHome = minorPower === 'FRANCE' && tw.franceHomeIsUK ? 'united_kingdom' : null;
+      // Check home is not occupied by enemy
+      for (const h of [home, altHome]) {
+        if (!h) continue;
+        const hasEnemy = allWithMinor.some((p) => p.spaceId === h && getTeam(p.country) !== getTeam(country));
+        const hasSameMinor = mpPieces.some((mp) => mp.spaceId === h && mp.type === 'army');
+        if (!hasEnemy && !hasSameMinor) valid.add(h);
+      }
+    } else {
+      // Build adjacent to any existing minor power piece
+      for (const piece of mpPieces) {
+        for (const adj of getAdjacentSpaces(piece.spaceId)) {
+          const sp = getSpace(adj);
+          if (sp?.type !== SpaceType.LAND) continue;
+          const hasEnemy = allWithMinor.some((p) => p.spaceId === adj && getTeam(p.country) !== getTeam(country));
+          const hasSameMinor = mpPieces.some((mp) => mp.spaceId === adj && mp.type === 'army');
+          if (!hasEnemy && !hasSameMinor) valid.add(adj);
+        }
+      }
+    }
+    return valid.size > 0
+      ? { action: 'build_french_army' as any, spaces: Array.from(valid), effectCountry: country, prompt: `Build ${minorPower === 'FRANCE' ? 'French' : 'Chinese'} army`, count: 1, skippable: false }
+      : null;
+  }
+
+  // --- Minor power conditions: build_french_navy ---
+  if (effect.type === 'BUILD_NAVY' && effect.condition === 'build_french_navy') {
+    const tw = useTotalWarStore.getState();
+    if (!tw.enabled) return null;
+    const mpPieces = tw.minorPowerPieces.filter((mp) => mp.minorPower === 'FRANCE');
+    const navyCount = mpPieces.filter((mp) => mp.type === 'navy').length;
+    if (navyCount >= 2) return null;  // France max 2 navies
+
+    const allWithMinor = getAllPiecesWithMinorPowers(state);
+    const valid = new Set<string>();
+
+    // Build navy adjacent to any existing French piece
+    for (const piece of mpPieces) {
+      for (const adj of getAdjacentSpaces(piece.spaceId)) {
+        const sp = getSpace(adj);
+        if (sp?.type !== SpaceType.SEA) continue;
+        const hasEnemy = allWithMinor.some((p) => p.spaceId === adj && getTeam(p.country) !== getTeam(country));
+        const hasSameMinor = mpPieces.some((mp) => mp.spaceId === adj && mp.type === 'navy');
+        if (!hasEnemy && !hasSameMinor) valid.add(adj);
+      }
+    }
+    return valid.size > 0
+      ? { action: 'build_french_navy' as any, spaces: Array.from(valid), effectCountry: country, prompt: `Build French navy`, count: 1, skippable: false }
+      : null;
   }
 
   return null;
@@ -1279,7 +1419,9 @@ export function processEventEffects(
         ns = resolveEventEffectAtSpace(choice.action, sid, choice.effectCountry, country, ns, cardName);
 
         const isBuild = choice.action === 'build_army' || choice.action === 'build_navy'
-          || choice.action === 'recruit_army' || choice.action === 'recruit_navy';
+          || choice.action === 'recruit_army' || choice.action === 'recruit_navy'
+          || choice.action === 'build_french_army' || choice.action === 'build_chinese_army'
+          || choice.action === 'build_french_navy';
         if (isBuild) {
           const triggerType = (choice.action === 'build_navy' || choice.action === 'recruit_navy')
             ? 'build_navy' as const : 'build_army' as const;
@@ -1411,6 +1553,33 @@ export function resolveEventEffectAtSpace(
         ns = { ...ns, countries: { ...ns.countries, [target.country]: { ...tcs, piecesOnBoard: tcs.piecesOnBoard.filter((p) => p.id !== target.id) } } };
         ns = addLogEntry(ns, playingCountry, `${cardName}: eliminated army in ${spaceName}`);
       }
+      break;
+    }
+    case 'build_french_army':
+    case 'build_chinese_army': {
+      // Build a minor power army via the TW store
+      const tw = useTotalWarStore.getState();
+      const minorPower: MinorPower = action === 'build_french_army' ? 'FRANCE' : 'CHINA';
+      const mpPiece: MinorPowerPiece = {
+        id: `mp_${minorPower.toLowerCase()}_${generatePieceId()}`,
+        minorPower,
+        type: 'army',
+        spaceId,
+      };
+      tw.addMinorPowerPiece(mpPiece);
+      ns = addLogEntry(ns, playingCountry, `${cardName}: built ${minorPower.toLowerCase()} army in ${spaceName}`);
+      break;
+    }
+    case 'build_french_navy': {
+      const tw = useTotalWarStore.getState();
+      const mpPiece: MinorPowerPiece = {
+        id: `mp_france_${generatePieceId()}`,
+        minorPower: 'FRANCE',
+        type: 'navy',
+        spaceId,
+      };
+      tw.addMinorPowerPiece(mpPiece);
+      ns = addLogEntry(ns, playingCountry, `${cardName}: built french navy in ${spaceName}`);
       break;
     }
   }
@@ -2215,6 +2384,43 @@ export function resolveBattleAction(
   const enemyTeam = getEnemyTeam(country);
   const spaceName = getSpace(spaceId)?.name ?? spaceId;
 
+  // --- Check minor power pieces first ---
+  const tw = useTotalWarStore.getState();
+  if (tw.enabled) {
+    const myTeam = getTeam(country);
+    const enemyMinorPieces = tw.minorPowerPieces.filter(
+      (mp) => mp.spaceId === spaceId && MINOR_POWER_TEAM[mp.minorPower] !== myTeam
+    );
+
+    // If a specific piece was requested and it's a minor power piece, remove it
+    if (specificPieceId) {
+      const mpTarget = enemyMinorPieces.find((mp) => mp.id === specificPieceId);
+      if (mpTarget) {
+        tw.removeMinorPowerPiece(mpTarget.id);
+        return addLogEntry(
+          { ...state, pendingAction: null, selectedCard: null },
+          country,
+          `Eliminated enemy ${mpTarget.minorPower.toLowerCase()} ${mpTarget.type} in ${spaceName}`
+        );
+      }
+    }
+
+    // For non-specific battles: check if there are regular enemy pieces first;
+    // if not, target a minor power piece
+    const hasRegularEnemy = allPieces.some(
+      (p) => p.spaceId === spaceId && getTeam(p.country) === enemyTeam
+    );
+    if (!hasRegularEnemy && enemyMinorPieces.length > 0) {
+      const mpTarget = enemyMinorPieces[0];
+      tw.removeMinorPowerPiece(mpTarget.id);
+      return addLogEntry(
+        { ...state, pendingAction: null, selectedCard: null },
+        country,
+        `Eliminated enemy ${mpTarget.minorPower.toLowerCase()} ${mpTarget.type} in ${spaceName}`
+      );
+    }
+  }
+
   const hasRemoveAll = state.countries[country].statusCards.some((c) =>
     c.effects.some((e) => e.type === 'ELIMINATE_ARMY' && e.condition === 'all_in_space')
   );
@@ -2223,6 +2429,16 @@ export function resolveBattleAction(
     const piecesToRemove = allPieces.filter(
       (p) => p.spaceId === spaceId && getTeam(p.country) === enemyTeam
     );
+    // Also remove any minor power pieces in the space
+    if (tw.enabled) {
+      const myTeam = getTeam(country);
+      const enemyMinorHere = tw.minorPowerPieces.filter(
+        (mp) => mp.spaceId === spaceId && MINOR_POWER_TEAM[mp.minorPower] !== myTeam
+      );
+      for (const mp of enemyMinorHere) {
+        tw.removeMinorPowerPiece(mp.id);
+      }
+    }
     if (piecesToRemove.length === 0) return state;
     let ns: GameState = { ...state, pendingAction: null, selectedCard: null };
     for (const piece of piecesToRemove) {
