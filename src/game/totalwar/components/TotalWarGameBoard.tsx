@@ -157,8 +157,8 @@ export default function TotalWarGameBoard() {
   if (twPendingAction?.type === 'REPOSITION_AIR_FORCE') {
     twPendingAction.validSpaces.forEach((s) => validSpaces.add(s));
   }
-  if (twPendingAction?.type === 'AIR_STEP_DEPLOY_LOCATION') {
-    (twPendingAction as any).validSpaces?.forEach((s: string) => validSpaces.add(s));
+  if (twPendingAction?.type === 'SELECT_AF_DEPLOY_LOCATION') {
+    twPendingAction.validSpaces.forEach((s) => validSpaces.add(s));
   }
 
   const currentCountry = getCurrentCountry(state);
