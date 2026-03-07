@@ -886,45 +886,100 @@ function handleAirForceReposition() {
 
 /**
  * AI uses Reallocate Resources when:
- * 1. Home army was lost (no army on home space)
- * 2. No Build Army card in hand
- * 3. Build Army card exists in deck
+ * 1. Home army was lost and no Build Army in hand → search for BUILD_ARMY
+ * 2. France/China minor power armies exist and Axis has no LAND_BATTLE → search for LAND_BATTLE
+ * 3. France/China armies eliminated but space empty and no BUILD_ARMY → search for BUILD_ARMY
  *
- * Automatically discards lowest-value cards and picks Build Army from deck.
+ * Automatically discards lowest-value cards and picks the needed card from deck.
  */
 function resolveAiReallocate(country: Country) {
   const state = useGameStore.getState();
   const cs = state.countries[country];
   if (!cs || cs.hand.length <= REALLOCATE_COST) return;
 
+  // Check for Victory Gardens status (USA pays only 1 card)
+  const hasVictoryGardens = cs.statusCards?.some(
+    (c: any) => c.effects?.some((e: any) => e.condition === 'cheaper_reallocate')
+  );
+  const cost = hasVictoryGardens ? 1 : REALLOCATE_COST;
+  if (cs.hand.length <= cost) return;
+
+  // Determine what card type is needed
+  let neededType: string | null = null;
+  let reason = '';
+
   const homeSpace = HOME_SPACES[country];
   const hasHomeArmy = cs.piecesOnBoard.some(
     (p: any) => p.type === 'army' && p.spaceId === homeSpace
   );
-
-  // Only reallocate if home army is lost
-  if (hasHomeArmy) return;
-
-  // Check if already has Build Army in hand
   const hasBuildArmy = cs.hand.some((c: any) => c.type === 'BUILD_ARMY');
-  if (hasBuildArmy) return;
+  const hasLandBattle = cs.hand.some((c: any) => c.type === 'LAND_BATTLE');
 
-  // Check if Build Army exists in deck
-  const buildArmyInDeck = cs.deck.find((c: any) => c.type === 'BUILD_ARMY');
-  if (!buildArmyInDeck) return;
+  // Check minor power context
+  const tw = useTotalWarStore.getState();
+  const frenchArmies = tw.minorPowerPieces.filter((p) => p.minorPower === 'FRANCE' && p.type === 'army');
+  const chineseArmies = tw.minorPowerPieces.filter((p) => p.minorPower === 'CHINA' && p.type === 'army');
 
-  // AI decides to reallocate: discard 3 lowest-value cards
+  const isAxisAntiF = country === Country.GERMANY || country === Country.ITALY;
+  const isJapan = country === Country.JAPAN;
+
+  // Priority 1: Axis needs LAND_BATTLE to eliminate France/China armies
+  if (isAxisAntiF && frenchArmies.length > 0 && !hasLandBattle) {
+    neededType = 'LAND_BATTLE';
+    reason = 'French armies on board, need land battle';
+  } else if (isJapan && chineseArmies.length > 0 && !hasLandBattle) {
+    neededType = 'LAND_BATTLE';
+    reason = 'Chinese armies on board, need land battle';
+  }
+  // Priority 2: France/China eliminated, need to occupy the space
+  // Only reallocate if this country can actually build in WE/China (check valid build locations)
+  else if (isAxisAntiF && frenchArmies.length === 0 && !hasBuildArmy) {
+    const weOccupied = cs.piecesOnBoard.some((p: any) => p.spaceId === 'western_europe');
+    const allPieces = getAllPieces(state);
+    const anyAxisInWE = allPieces.some((p: any) => p.spaceId === 'western_europe' && getTeam(p.country) === Team.AXIS);
+    if (!weOccupied && !anyAxisInWE) {
+      neededType = 'BUILD_ARMY';
+      reason = 'France eliminated, need to build in Western Europe';
+    }
+  } else if (isJapan && chineseArmies.length === 0 && !hasBuildArmy) {
+    const chinaOccupied = cs.piecesOnBoard.some((p: any) => p.spaceId === 'china' || p.spaceId === 'szechuan');
+    const allPieces = getAllPieces(state);
+    const anyAxisInChina = allPieces.some((p: any) => (p.spaceId === 'china' || p.spaceId === 'szechuan') && getTeam(p.country) === Team.AXIS);
+    if (!chinaOccupied && !anyAxisInChina) {
+      neededType = 'BUILD_ARMY';
+      reason = 'China eliminated, need to build in China';
+    }
+  }
+  // Priority 3: Lost home army (original logic)
+  else if (!hasHomeArmy && !hasBuildArmy) {
+    neededType = 'BUILD_ARMY';
+    reason = 'lost home army';
+  }
+
+  if (!neededType) return;
+
+  // Check if needed card type exists in deck
+  const targetCard = cs.deck.find((c: any) => c.type === neededType);
+  if (!targetCard) return;
+
+  // AI decides to reallocate: discard lowest-value cards (preserving the needed type)
   const hand = [...cs.hand];
   const scored = hand.map((c: any, i: number) => ({
     id: c.id,
     index: i,
+    cardType: c.type,
     score: c.type === 'STATUS' ? 15 : c.type === 'RESPONSE' ? 14 : c.type === 'LAND_BATTLE' ? 12 :
            c.type === 'EVENT' ? 11 : c.type === 'BUILD_ARMY' ? 10 : c.type === 'SEA_BATTLE' ? 10 :
            c.type === 'ECONOMIC_WARFARE' ? 9 : c.type === 'BUILD_NAVY' ? 8 :
            c.type === 'AIR_POWER' ? 7 : c.type === 'BOLSTER' ? 6 : 5,
   }));
   scored.sort((a, b) => a.score - b.score);
-  const toDiscard = scored.slice(0, REALLOCATE_COST);
+
+  // Don't discard cards of the type we're looking for
+  const eligibleToDiscard = scored.filter((s) => s.cardType !== neededType);
+  if (eligibleToDiscard.length < cost) return;
+
+  const toDiscard = eligibleToDiscard.slice(0, cost);
   const discardIds = new Set(toDiscard.map((x) => x.id));
 
   // Perform the reallocate
@@ -932,7 +987,7 @@ function resolveAiReallocate(country: Country) {
     const c = s.countries[country];
     const discarded = c.hand.filter((card: any) => discardIds.has(card.id));
     const remaining = c.hand.filter((card: any) => !discardIds.has(card.id));
-    const pickedCard = c.deck.find((card: any) => card.type === 'BUILD_ARMY');
+    const pickedCard = c.deck.find((card: any) => card.type === neededType);
     if (!pickedCard) return {};
 
     const newDeck = c.deck.filter((card: any) => card.id !== pickedCard.id);
@@ -952,7 +1007,7 @@ function resolveAiReallocate(country: Country) {
     };
   });
 
-  twLog(country, `Reallocate Resources: Discarded ${REALLOCATE_COST} cards, took ${buildArmyInDeck.name} from deck (lost home army)`);
+  twLog(country, `Reallocate Resources: Discarded ${cost} cards, took ${targetCard.name} from deck (${reason})`);
 }
 
 function checkAndResolveAirAttack(

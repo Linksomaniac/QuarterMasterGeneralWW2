@@ -640,6 +640,13 @@ function getCountrySpaceBonus(spaceId: string, country: Country, state: GameStat
         // Early urgency: western_europe is a priority regardless of French position
         if (spaceId === 'western_europe') bonus += 15;
       }
+      // After France is eliminated, occupy WE supply space ASAP to deny Allies VP
+      if (tw.frenchArmies.length === 0 && spaceId === 'western_europe') {
+        const axisInWE = getAllPieces(state).some(
+          (p) => p.spaceId === 'western_europe' && getTeam(p.country) === Team.AXIS
+        );
+        if (!axisInWE) bonus += 30;  // empty WE = massive build priority
+      }
     }
 
     // Japan: PRIORITY #1 — spaces with Chinese armies must be taken
@@ -650,6 +657,13 @@ function getCountrySpaceBonus(spaceId: string, country: Country, state: GameStat
       }
       if (isEarly && tw.chineseArmies.length > 0) {
         if (spaceId === 'china' || spaceId === 'szechuan') bonus += 15;
+      }
+      // After China is eliminated, occupy China/Szechuan supply spaces ASAP
+      if (tw.chineseArmies.length === 0 && (spaceId === 'china' || spaceId === 'szechuan')) {
+        const axisInSpace = getAllPieces(state).some(
+          (p) => p.spaceId === spaceId && getTeam(p.country) === Team.AXIS
+        );
+        if (!axisInSpace) bonus += 30;  // empty supply space = massive build priority
       }
     }
 
@@ -1538,6 +1552,24 @@ export function pickBestBuildLocation(
             twBuild.chineseArmies.some((p) => p.spaceId === 'china' || p.spaceId === 'szechuan')) {
           score += 20;
         }
+      }
+
+      // Germany/Italy: after France eliminated, occupy WE supply space immediately
+      if ((country === Country.GERMANY || country === Country.ITALY) &&
+          twBuild.frenchArmies.length === 0 && spaceId === 'western_europe') {
+        const axisInWE = allPieces.some(
+          (p) => p.spaceId === 'western_europe' && getTeam(p.country) === Team.AXIS
+        );
+        if (!axisInWE) score += 40;  // empty WE supply = top build priority
+      }
+
+      // Japan: after China eliminated, occupy China/Szechuan supply spaces immediately
+      if (country === Country.JAPAN && twBuild.chineseArmies.length === 0 &&
+          (spaceId === 'china' || spaceId === 'szechuan')) {
+        const axisInSpace = allPieces.some(
+          (p) => p.spaceId === spaceId && getTeam(p.country) === Team.AXIS
+        );
+        if (!axisInSpace) score += 40;  // empty supply = top build priority
       }
 
       // UK: build near French armies to defend them, but avoid sharing WE supply
