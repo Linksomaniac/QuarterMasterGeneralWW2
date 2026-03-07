@@ -9,7 +9,7 @@ import { useGameStore } from '../store';
 import { useTotalWarStore } from './store';
 import { GamePhase, Country, Team, getTeam, TURN_ORDER, COUNTRY_NAMES, CardType } from '../types';
 import { REALLOCATE_COST, REALLOCATE_ELIGIBLE_TYPES } from './types';
-import { getCurrentCountry, getAllPieces } from '../engine';
+import { getCurrentCountry, getAllPieces, getValidBattleTargets } from '../engine';
 import {
   checkAirForceReposition,
   calculateMinorPowerVP,
@@ -924,12 +924,20 @@ function resolveAiReallocate(country: Country) {
   const isJapan = country === Country.JAPAN;
 
   // Priority 1: Axis needs LAND_BATTLE to eliminate France/China armies
+  // But only if the minor power space is actually reachable (has adjacent piece)
+  const landTargets = getValidBattleTargets(country, 'land', state);
   if (isAxisAntiF && frenchArmies.length > 0 && !hasLandBattle) {
-    neededType = 'LAND_BATTLE';
-    reason = 'French armies on board, need land battle';
+    const canReachFrance = frenchArmies.some((p) => landTargets.includes(p.spaceId));
+    if (canReachFrance) {
+      neededType = 'LAND_BATTLE';
+      reason = 'French armies on board, need land battle';
+    }
   } else if (isJapan && chineseArmies.length > 0 && !hasLandBattle) {
-    neededType = 'LAND_BATTLE';
-    reason = 'Chinese armies on board, need land battle';
+    const canReachChina = chineseArmies.some((p) => landTargets.includes(p.spaceId));
+    if (canReachChina) {
+      neededType = 'LAND_BATTLE';
+      reason = 'Chinese armies on board, need land battle';
+    }
   }
   // Priority 2: France/China eliminated, need to occupy the space
   // Only reallocate if this country can actually build in WE/China (check valid build locations)
