@@ -23,6 +23,30 @@ import {
   evaluateVPCondition,
 } from './engine';
 import { getSpace, HOME_SPACES, SUPPLY_SPACE_IDS, getAdjacentSpaces } from './mapData';
+import { useTotalWarStore } from './totalwar/store';
+import type { MinorPowerPiece } from './totalwar/types';
+
+// ---------------------------------------------------------------------------
+// Total War minor power context — lazy accessor (returns null when TW disabled)
+// ---------------------------------------------------------------------------
+interface TWContext {
+  minorPowerPieces: MinorPowerPiece[];
+  franceHomeIsUK: boolean;
+  frenchArmies: MinorPowerPiece[];
+  chineseArmies: MinorPowerPiece[];
+}
+
+function getTWContext(): TWContext | null {
+  const tw = useTotalWarStore.getState();
+  if (!tw.enabled) return null;
+  const pieces = tw.minorPowerPieces;
+  return {
+    minorPowerPieces: pieces,
+    franceHomeIsUK: tw.franceHomeIsUK,
+    frenchArmies: pieces.filter((p) => p.minorPower === 'FRANCE' && p.type === 'army'),
+    chineseArmies: pieces.filter((p) => p.minorPower === 'CHINA' && p.type === 'army'),
+  };
+}
 
 // ===========================================================================
 // Country-Specific AI Strategies
@@ -44,10 +68,13 @@ interface CountryStrategy {
 const COUNTRY_STRATEGIES: Record<Country, CountryStrategy> = {
   [Country.UK]: {
     prioritySpaces: ['western_europe', 'india', 'australia', 'north_sea', 'mediterranean',
-                     'north_atlantic', 'bay_of_bengal', 'canada', 'north_africa'],
+                     'north_atlantic', 'bay_of_bengal', 'canada', 'north_africa', 'africa'],
     avoidSpaces: ['eastern_us', 'western_us', 'hawaii', 'east_pacific'],
     priorityCardIds: ['uk_lord_linlithgow', 'uk_australia_directorate', 'uk_royal_navy',
-                      'uk_free_france', 'uk_mackenzie_king', 'uk_resistance'],
+                      'uk_free_france', 'uk_mackenzie_king', 'uk_resistance',
+                      'uk_tw_government_in_exile', 'uk_tw_free_france_sub',
+                      'uk_tw_senegalese_tirailleurs', 'uk_tw_armee_de_terre',
+                      'uk_tw_france_combattante'],
     buildNavyBonus: 8,
     buildArmyBonus: 0,
     statusBonus: 4,
@@ -63,7 +90,9 @@ const COUNTRY_STRATEGIES: Record<Country, CountryStrategy> = {
     avoidSpaces: [],
     priorityCardIds: ['usa_aircraft_carriers', 'usa_amphibious_landings',
                       'usa_superior_shipyards', 'usa_wartime_production',
-                      'usa_american_volunteer', 'usa_flying_fortresses'],
+                      'usa_american_volunteer', 'usa_flying_fortresses',
+                      'usa_tw_american_volunteer_sub', 'usa_tw_anti_japanese_volunteer',
+                      'usa_tw_hundred_regiments', 'usa_tw_ledo_burma_roads_sub'],
     buildNavyBonus: 10,
     buildArmyBonus: 0,
     statusBonus: 8,
@@ -73,11 +102,12 @@ const COUNTRY_STRATEGIES: Record<Country, CountryStrategy> = {
     earlyBuildPriority: true,
   },
   [Country.GERMANY]: {
-    prioritySpaces: ['eastern_europe', 'ukraine', 'russia', 'moscow', 'balkans',
-                     'western_europe', 'scandinavia'],
+    prioritySpaces: ['western_europe', 'eastern_europe', 'ukraine', 'russia', 'moscow', 'balkans',
+                     'scandinavia'],
     avoidSpaces: [],
     priorityCardIds: ['ger_blitzkrieg', 'ger_bias_for_action', 'ger_dive_bombers',
-                      'ger_conscription', 'ger_abundant_resources', 'ger_synthetic_fuel'],
+                      'ger_conscription', 'ger_abundant_resources', 'ger_synthetic_fuel',
+                      'ger_tw_fall_weiss', 'ger_tw_ardennes_offensive'],
     buildNavyBonus: 0,
     buildArmyBonus: 4,
     statusBonus: 10,
@@ -114,11 +144,13 @@ const COUNTRY_STRATEGIES: Record<Country, CountryStrategy> = {
     earlyBuildPriority: false,
   },
   [Country.JAPAN]: {
-    prioritySpaces: ['china', 'southeast_asia', 'philippines', 'indonesia',
+    prioritySpaces: ['china', 'szechuan', 'southeast_asia', 'philippines', 'indonesia',
                      'new_guinea', 'india', 'iwo_jima', 'south_china_sea'],
     avoidSpaces: [],
     priorityCardIds: ['jpn_destroyer_transport', 'jpn_snlf', 'jpn_china_offensive',
-                      'jpn_fall_of_singapore', 'jpn_surprise_attack', 'jpn_mobile_force'],
+                      'jpn_fall_of_singapore', 'jpn_surprise_attack', 'jpn_mobile_force',
+                      'jpn_tw_chinese_civil_war', 'jpn_tw_imperial_manchukuo_army',
+                      'jpn_tw_marco_polo_bridge'],
     buildNavyBonus: 8,
     buildArmyBonus: 0,
     statusBonus: 0,
@@ -333,6 +365,109 @@ function getCountryCardBonus(card: Card, country: Country, state: GameState, rou
     }
   }
 
+  // --- Total War: minor power card scoring ---
+  const tw = getTWContext();
+  if (tw) {
+    const twCard = card as unknown as { minorPower?: string };
+    const hasFrenchOnBoard = tw.frenchArmies.length > 0;
+    const hasChineseOnBoard = tw.chineseArmies.length > 0;
+    const axisInWE = getAllPieces(state).some(
+      (p) => p.spaceId === 'western_europe' && getTeam(p.country) === Team.AXIS
+    );
+
+    // UK: France-related cards — play French status to move home, defend France
+    if (country === Country.UK && twCard.minorPower === 'FRANCE') {
+      // Government in Exile: critical when Axis holds WE, lets France build from UK
+      if (card.id === 'uk_tw_government_in_exile') {
+        bonus += axisInWE ? 25 : 12;
+        if (isEarly) bonus += 10;
+      }
+      // Free France status: valuable when France has pieces to sustain
+      else if (card.id === 'uk_tw_free_france_sub') {
+        bonus += hasFrenchOnBoard ? 18 : 10;
+        if (isEarly) bonus += 8;
+      }
+      // Senegalese Tirailleurs: expands France supply to Africa
+      else if (card.id === 'uk_tw_senegalese_tirailleurs') {
+        bonus += 12;
+        if (isEarly) bonus += 6;
+      }
+      // Maginot Line: strong if French army is in WE
+      else if (card.id === 'uk_tw_maginot_line') {
+        bonus += tw.frenchArmies.some((p) => p.spaceId === 'western_europe') ? 15 : 6;
+      }
+      // All other France minor power cards: general build/recruit value
+      else {
+        bonus += 10;
+        if (tw.frenchArmies.length <= 1) bonus += 8;  // urgent when France is low on pieces
+      }
+    }
+
+    // Japan: anti-China cards — eliminate Chinese armies ASAP
+    if (country === Country.JAPAN) {
+      if (card.id === 'jpn_tw_chinese_civil_war') {
+        bonus += hasChineseOnBoard ? 20 : 6;
+        if (isEarly) bonus += 10;
+      } else if (card.id === 'jpn_tw_imperial_manchukuo_army') {
+        bonus += 14;
+        if (isEarly) bonus += 8;
+      } else if (card.id === 'jpn_tw_marco_polo_bridge') {
+        bonus += hasChineseOnBoard ? 16 : 6;
+      } else if (card.id === 'jpn_tw_bombing_chongqing') {
+        bonus += hasChineseOnBoard ? 12 : 4;
+      }
+      // Boost land battles when Chinese armies exist (to target them)
+      if (hasChineseOnBoard && card.type === CardType.LAND_BATTLE) bonus += 6;
+    }
+
+    // Germany: anti-France cards — eliminate French armies early
+    if (country === Country.GERMANY) {
+      if (card.id === 'ger_tw_fall_weiss') {
+        bonus += hasFrenchOnBoard ? 15 : 4;
+        if (isEarly) bonus += 8;
+      } else if (card.id === 'ger_tw_ardennes_offensive') {
+        bonus += tw.frenchArmies.some((p) => p.spaceId === 'western_europe') ? 14 : 6;
+      }
+      // Boost land battles and army builds when French armies exist
+      if (hasFrenchOnBoard) {
+        if (card.type === CardType.LAND_BATTLE) bonus += 6;
+        if (card.type === CardType.BUILD_ARMY && isEarly) bonus += 4;
+      }
+    }
+
+    // Italy: support anti-France efforts
+    if (country === Country.ITALY && hasFrenchOnBoard) {
+      if (card.type === CardType.LAND_BATTLE) bonus += 4;
+      if (card.type === CardType.BUILD_ARMY) {
+        // Build army to push into WE when France is there
+        const frenchInWE = tw.frenchArmies.some((p) => p.spaceId === 'western_europe');
+        if (frenchInWE) bonus += 5;
+      }
+    }
+
+    // USA: China-related cards — defend and sustain Chinese armies
+    if (country === Country.USA && twCard.minorPower === 'CHINA') {
+      if (card.id === 'usa_tw_american_volunteer_sub') {
+        bonus += 18;
+        if (isEarly) bonus += 10;
+      } else if (card.id === 'usa_tw_anti_japanese_volunteer') {
+        bonus += 14;
+        if (hasChineseOnBoard) bonus += 6;
+      } else if (card.id === 'usa_tw_hundred_regiments') {
+        bonus += 8;
+        if (hasChineseOnBoard) bonus += 6;
+      } else if (card.id === 'usa_tw_ledo_burma_roads_sub') {
+        bonus += 12;
+        if (isEarly) bonus += 6;
+      }
+      // Generic China builds — more valuable when China is low on pieces
+      else {
+        bonus += 10;
+        if (tw.chineseArmies.length <= 1) bonus += 8;
+      }
+    }
+  }
+
   return bonus;
 }
 
@@ -462,6 +597,54 @@ function getCountrySpaceBonus(spaceId: string, country: Country, state: GameStat
       if (['india', 'australia', 'southeast_asia', 'new_guinea', 'philippines'].includes(spaceId)) {
         bonus += 10;
       }
+    }
+  }
+
+  // --- Total War: minor power awareness ---
+  const tw = getTWContext();
+  if (tw) {
+    const isEarly = state.round <= 5;
+    const frenchHere = tw.frenchArmies.some((p) => p.spaceId === spaceId);
+    const chineseHere = tw.chineseArmies.some((p) => p.spaceId === spaceId);
+
+    // Germany/Italy: prioritize spaces with French armies — eliminate them ASAP
+    if (country === Country.GERMANY || country === Country.ITALY) {
+      if (frenchHere) {
+        bonus += 20;  // target French army positions
+        if (spaceId === 'western_europe') bonus += 15;  // WE is the key battleground
+      }
+      if (isEarly && tw.frenchArmies.length > 0) {
+        // Early urgency: western_europe is a priority regardless of French position
+        if (spaceId === 'western_europe') bonus += 10;
+      }
+    }
+
+    // Japan: prioritize spaces with Chinese armies — eliminate them ASAP
+    if (country === Country.JAPAN) {
+      if (chineseHere) {
+        bonus += 20;  // target Chinese army positions
+        if (spaceId === 'china' || spaceId === 'szechuan') bonus += 12;
+      }
+      if (isEarly && tw.chineseArmies.length > 0) {
+        if (spaceId === 'china' || spaceId === 'szechuan') bonus += 10;
+      }
+    }
+
+    // UK: defend French armies — stay near them, protect western_europe
+    if (country === Country.UK) {
+      if (frenchHere) bonus += 12;  // defend spaces with French armies
+      if (spaceId === 'western_europe' && tw.frenchArmies.some((p) => p.spaceId === 'western_europe')) {
+        bonus += 10;
+      }
+      // If Government in Exile active (franceHomeIsUK), UK home becomes supply for France
+      if (tw.franceHomeIsUK && spaceId === 'united_kingdom') bonus += 8;
+      // Africa for Senegalese Tirailleurs supply route
+      if (spaceId === 'africa' && tw.frenchArmies.length > 0) bonus += 6;
+    }
+
+    // USA: defend Chinese armies
+    if (country === Country.USA) {
+      if (chineseHere) bonus += 8;
     }
   }
 
@@ -1257,6 +1440,51 @@ export function pickBestBuildLocation(
       }
     }
 
+    // --- Total War: minor power build awareness ---
+    const twBuild = getTWContext();
+    if (twBuild) {
+      const adj = getAdjacentSpaces(spaceId);
+
+      // Germany/Italy: build adjacent to French armies to attack them next turn
+      if (country === Country.GERMANY || country === Country.ITALY) {
+        const adjToFrench = twBuild.frenchArmies.some(
+          (p) => p.spaceId === spaceId || adj.includes(p.spaceId)
+        );
+        if (adjToFrench) score += 15;
+        // Extra bonus for building in WE when France is there
+        if (spaceId === 'western_europe' &&
+            twBuild.frenchArmies.some((p) => p.spaceId === 'western_europe')) {
+          score += 12;
+        }
+      }
+
+      // Japan: build adjacent to Chinese armies to attack them next turn
+      if (country === Country.JAPAN) {
+        const adjToChinese = twBuild.chineseArmies.some(
+          (p) => p.spaceId === spaceId || adj.includes(p.spaceId)
+        );
+        if (adjToChinese) score += 15;
+        // Extra bonus for building in China/Szechuan when Chinese armies present
+        if ((spaceId === 'china' || spaceId === 'szechuan') &&
+            twBuild.chineseArmies.some((p) => p.spaceId === 'china' || p.spaceId === 'szechuan')) {
+          score += 12;
+        }
+      }
+
+      // UK: build near French armies to defend them, but avoid sharing WE supply
+      if (country === Country.UK) {
+        const nearFrench = twBuild.frenchArmies.some(
+          (p) => p.spaceId === spaceId || adj.includes(p.spaceId)
+        );
+        if (nearFrench) score += 8;
+        // Avoid sharing western_europe supply space with France (VP sharing penalty)
+        if (spaceId === 'western_europe' &&
+            twBuild.frenchArmies.some((p) => p.spaceId === 'western_europe')) {
+          score -= 10;
+        }
+      }
+    }
+
     if (score > bestScore) {
       bestScore = score;
       bestSpace = spaceId;
@@ -1367,6 +1595,46 @@ export function pickBestBattleTarget(
       if (spaceId === 'balkans') score += 10;
       // Offensive: support Germany by clearing North Africa / Middle East
       if (['north_africa', 'middle_east'].includes(spaceId)) score += 8;
+    }
+
+    // --- Total War: minor power battle targeting ---
+    const twBattle = getTWContext();
+    if (twBattle) {
+      const isEarlyBattle = state.round <= 5;
+      const frenchHere = twBattle.frenchArmies.some((p) => p.spaceId === spaceId);
+      const chineseHere = twBattle.chineseArmies.some((p) => p.spaceId === spaceId);
+
+      // Germany/Italy: prioritize battling in spaces with French armies
+      if ((country === Country.GERMANY || country === Country.ITALY) && frenchHere) {
+        score += 25;
+        if (spaceId === 'western_europe') score += 15;
+        if (isEarlyBattle) score += 10;
+      }
+
+      // Japan: prioritize battling in spaces with Chinese armies
+      if (country === Country.JAPAN && chineseHere) {
+        score += 25;
+        if (spaceId === 'china' || spaceId === 'szechuan') score += 12;
+        if (isEarlyBattle) score += 10;
+      }
+
+      // UK: prioritize battling enemies near French armies (defend France)
+      if (country === Country.UK) {
+        const adjToSpace = getAdjacentSpaces(spaceId);
+        const frenchNearby = twBattle.frenchArmies.some(
+          (p) => p.spaceId === spaceId || adjToSpace.includes(p.spaceId)
+        );
+        if (frenchNearby) score += 10;
+      }
+
+      // USA: prioritize battling enemies near Chinese armies (defend China)
+      if (country === Country.USA) {
+        const adjToSpace = getAdjacentSpaces(spaceId);
+        const chineseNearby = twBattle.chineseArmies.some(
+          (p) => p.spaceId === spaceId || adjToSpace.includes(p.spaceId)
+        );
+        if (chineseNearby) score += 8;
+      }
     }
 
     // --- Defensive bonus for all countries: battle enemies that threaten
