@@ -72,7 +72,14 @@ export function initTotalWarGame() {
       }
     }
 
-    return { countries: newCountries };
+    // Fix the log message from base initGame (3/10 → 5/12)
+    const fixedLog = state.log.map((entry) =>
+      entry.message.includes('discards 3 cards from their initial hand of 10')
+        ? { ...entry, message: 'Game starting — each country discards 5 cards from their initial hand of 12. (Total War)' }
+        : entry
+    );
+
+    return { countries: newCountries, log: fixedLog };
   });
 
   // Place starting minor power pieces

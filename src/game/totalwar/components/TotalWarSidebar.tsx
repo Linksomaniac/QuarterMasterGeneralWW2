@@ -29,7 +29,7 @@ export default function TotalWarSidebar() {
       {/* Expansion info panel at the top */}
       <ExpansionInfoPanel />
       {/* Base sidebar below */}
-      <div className="flex-1 overflow-hidden">
+      <div className="flex-1 min-h-0 overflow-y-auto">
         <Sidebar />
       </div>
     </div>

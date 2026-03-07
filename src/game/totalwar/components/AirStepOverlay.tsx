@@ -16,8 +16,9 @@ export default function AirStepOverlay() {
   const countryName = COUNTRY_NAMES[airStepCountry];
   const color = COUNTRY_COLORS[airStepCountry];
 
-  // If there's a specific pending action (like selecting deploy location), show that UI
-  if (pendingAction) {
+  // If there's a specific sub-action (like selecting deploy location), show that UI
+  // AIR_STEP_CHOICE means we're at the main choice screen — show it below
+  if (pendingAction && pendingAction.type !== 'AIR_STEP_CHOICE') {
     return <AirStepPendingAction />;
   }
 

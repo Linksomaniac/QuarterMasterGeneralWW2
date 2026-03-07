@@ -51,7 +51,7 @@ export const MINOR_POWER_NAMES: Record<MinorPower, string> = {
 
 export const MINOR_POWER_COLORS: Record<MinorPower, string> = {
   FRANCE: '#1E3A8A',  // deep blue
-  CHINA: '#1A1A1A',   // black
+  CHINA: '#8B4513',   // brown (saddle brown)
 };
 
 export const MINOR_POWER_TEXT_ON_BG: Record<MinorPower, string> = {
@@ -101,6 +101,12 @@ export const AIR_FORCE_LIMITS: Record<Country, number> = {
   [Country.SOVIET_UNION]: 1,
   [Country.ITALY]: 1,
   [Country.USA]: 3,
+};
+
+/** Max air forces per minor power */
+export const MINOR_POWER_AF_LIMITS: Record<MinorPower, number> = {
+  FRANCE: 1,
+  CHINA: 1,
 };
 
 // ---------------------------------------------------------------------------
@@ -282,6 +288,8 @@ export type TotalWarPendingAction =
       bolsterCardName: string;
       trigger: BolsterTrigger;
       description: string;
+      /** Phase to resume after all bolsters are resolved */
+      resumePhase: GamePhase;
       /** Multiple bolsters may be available; this tracks all of them */
       allBolsters?: { cardId: string; cardName: string; description: string }[];
     }
@@ -322,6 +330,27 @@ export type TotalWarPendingAction =
       validSpaces: string[];
       eventCardName: string;
     }
+  | {
+      type: 'TW_SETUP_DISCARD';
+      country: Country;
+      countryIndex: number;
+    }
+  | {
+      type: 'REALLOCATE_RESOURCES_OFFER';
+      country: Country;
+    }
+  | {
+      type: 'REALLOCATE_RESOURCES_DISCARD';
+      country: Country;
+      cost: number;
+    }
+  | {
+      type: 'REALLOCATE_RESOURCES_PICK';
+      country: Country;
+      /** Eligible cards from deck (or discard if War Bonds active) */
+      eligibleCards: { id: string; name: string; type: string; text: string }[];
+      source: 'deck' | 'discard';
+    }
   ;
 
 // ---------------------------------------------------------------------------
@@ -353,6 +382,14 @@ export const SUBSTITUTE_BASE_IDS: string[] = [
 
 /** Cards that are renamed in Total War: Deploy Air Force → Air Power */
 export const DEPLOY_AF_IS_AIR_POWER = true;
+
+/** Reallocate Resources: discard 3 cards to search deck for a combat/build card */
+export const REALLOCATE_COST = 3;
+
+/** Card types eligible to pick via Reallocate Resources */
+export const REALLOCATE_ELIGIBLE_TYPES: string[] = [
+  'BUILD_ARMY', 'BUILD_NAVY', 'LAND_BATTLE', 'SEA_BATTLE',
+];
 
 // ---------------------------------------------------------------------------
 // Initial expansion state

@@ -13,8 +13,10 @@ import {
 } from '../game/types';
 import { useGameStore } from '../game/store';
 import { getCurrentCountry, getAvailablePieces } from '../game/engine';
+import { useTotalWarStore } from '../game/totalwar/store';
+import { AIR_FORCE_LIMITS } from '../game/totalwar/types';
 
-const CARD_TYPE_BREAKDOWN: { type: CardType; label: string; icon: string }[] = [
+const BASE_CARD_TYPE_BREAKDOWN: { type: string; label: string; icon: string }[] = [
   { type: CardType.BUILD_ARMY, label: 'Build Army', icon: '⚔' },
   { type: CardType.BUILD_NAVY, label: 'Build Navy', icon: '⚓' },
   { type: CardType.LAND_BATTLE, label: 'Land Battle', icon: '💥' },
@@ -25,10 +27,18 @@ const CARD_TYPE_BREAKDOWN: { type: CardType; label: string; icon: string }[] = [
   { type: CardType.ECONOMIC_WARFARE, label: 'Econ War', icon: '💰' },
 ];
 
-function countByType(cards: Card[]): Record<CardType, number> {
-  const counts = {} as Record<CardType, number>;
+const TW_CARD_TYPE_EXTRAS: { type: string; label: string; icon: string }[] = [
+  { type: 'AIR_POWER', label: 'Air Power', icon: '✈' },
+  { type: 'BOLSTER', label: 'Bolster', icon: '📯' },
+];
+
+function countByType(cards: Card[]): Record<string, number> {
+  const counts = {} as Record<string, number>;
   for (const ct of Object.values(CardType)) counts[ct] = 0;
-  for (const c of cards) counts[c.type]++;
+  // Also init expansion types
+  counts['AIR_POWER'] = 0;
+  counts['BOLSTER'] = 0;
+  for (const c of cards) counts[c.type as string] = (counts[c.type as string] || 0) + 1;
   return counts;
 }
 
@@ -91,8 +101,18 @@ function CountryStatus({ country }: { country: Country }) {
   const available = getAvailablePieces(country, state);
   const onBoard = countryState.piecesOnBoard.length;
 
+  const twEnabled = useTotalWarStore((s) => s.enabled);
+  const twAirForces = useTotalWarStore((s) => s.airForces);
+  const afOnBoard = twEnabled
+    ? twAirForces.filter((af) => af.country === country && !af.minorPower).length
+    : 0;
+  const afMax = twEnabled ? AIR_FORCE_LIMITS[country] : 0;
+
   const remaining = [...countryState.deck, ...countryState.hand];
   const remainingCounts = countByType(remaining);
+  const cardTypeBreakdown = twEnabled
+    ? [...BASE_CARD_TYPE_BREAKDOWN, ...TW_CARD_TYPE_EXTRAS]
+    : BASE_CARD_TYPE_BREAKDOWN;
 
   return (
     <div
@@ -126,6 +146,9 @@ function CountryStatus({ country }: { country: Country }) {
         <span>🃏 {countryState.hand.length}</span>
         <span>📚 {countryState.deck.length}</span>
         <span>⚔ {onBoard}</span>
+        {twEnabled && afMax > 0 && (
+          <span className="text-sky-400">✈ {afOnBoard}/{afMax}</span>
+        )}
         <span className="text-gray-600">
           ({available.armies}A {available.navies}N left)
         </span>
@@ -142,8 +165,8 @@ function CountryStatus({ country }: { country: Country }) {
 
       {expanded && (
         <div className="mt-1 grid grid-cols-2 gap-x-2 gap-y-0.5">
-          {CARD_TYPE_BREAKDOWN.map(({ type, label, icon }) => {
-            const count = remainingCounts[type];
+          {cardTypeBreakdown.map(({ type, label, icon }) => {
+            const count = remainingCounts[type] || 0;
             return (
               <div
                 key={type}

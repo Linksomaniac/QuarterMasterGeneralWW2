@@ -1,6 +1,9 @@
 import React from 'react';
 import { useTotalWarStore } from '../store';
-import { COUNTRY_NAMES, COUNTRY_COLORS } from '../../types';
+import { useGameStore } from '../../store';
+import { COUNTRY_NAMES, COUNTRY_COLORS, GamePhase } from '../../types';
+import { executeBolsterEffect, processNextBolster } from '../bolsterEngine';
+import { TotalWarCard } from '../types';
 
 /**
  * BolsterPrompt — shown when a bolster card can be played as a reaction.
@@ -10,18 +13,42 @@ export default function BolsterPrompt() {
   const pendingAction = useTotalWarStore((s) => s.pendingTotalWarAction);
   if (!pendingAction || pendingAction.type !== 'BOLSTER_OPPORTUNITY') return null;
 
-  const { country, bolsterCardName, description } = pendingAction;
+  const { country, bolsterCardName, bolsterCardId, trigger, description, resumePhase } = pendingAction;
   const color = COUNTRY_COLORS[country];
+  const remainingCount = pendingAction.allBolsters?.length ?? 0;
+  const phaseToResume = resumePhase || GamePhase.PLAY_STEP;
 
   const handleAccept = () => {
-    const tw = useTotalWarStore.getState();
-    tw.markBolsterUsed(pendingAction.bolsterCardId);
-    tw.setPendingTotalWarAction(null);
-    // TODO: execute bolster effect
+    // Find the card in hand to get full card data
+    const state = useGameStore.getState();
+    const cs = state.countries[country];
+    const card = cs?.hand.find((c: any) => c.id === bolsterCardId) as unknown as TotalWarCard;
+
+    if (card) {
+      executeBolsterEffect(country, card, bolsterCardId, trigger);
+    } else {
+      // Card not found (shouldn't happen), just mark as used
+      useTotalWarStore.getState().markBolsterUsed(bolsterCardId);
+    }
+
+    // Check for more bolsters in queue
+    if (remainingCount > 0) {
+      processNextBolster(phaseToResume);
+    } else {
+      useTotalWarStore.getState().setPendingTotalWarAction(null);
+      // Resume previous phase
+      useGameStore.setState({ phase: phaseToResume });
+    }
   };
 
   const handleDecline = () => {
-    useTotalWarStore.getState().setPendingTotalWarAction(null);
+    // Check for more bolsters in queue
+    if (remainingCount > 0) {
+      processNextBolster(phaseToResume);
+    } else {
+      useTotalWarStore.getState().setPendingTotalWarAction(null);
+      useGameStore.setState({ phase: phaseToResume });
+    }
   };
 
   return (
@@ -36,8 +63,17 @@ export default function BolsterPrompt() {
 
         <div className="bg-orange-900/20 border border-orange-800/30 rounded-lg p-3 mb-4">
           <div className="text-sm font-medium text-orange-300 mb-1">{bolsterCardName}</div>
-          <div className="text-xs text-gray-400">{description}</div>
+          <div className="text-xs text-gray-300 leading-relaxed">{description}</div>
+          <div className="text-[10px] text-gray-500 mt-2 uppercase">
+            Trigger: {trigger.replace(/_/g, ' ')}
+          </div>
         </div>
+
+        {remainingCount > 0 && (
+          <div className="text-xs text-gray-500 text-center mb-3">
+            +{remainingCount} more bolster{remainingCount > 1 ? 's' : ''} available
+          </div>
+        )}
 
         <div className="flex gap-3">
           <button

@@ -5,7 +5,7 @@
 
 import { Country, Team, Card, GameState, Piece, getTeam } from '../types';
 import { getCountryDeck } from '../cards';
-import { getAdjacentSpaces, SUPPLY_SPACE_IDS } from '../mapData';
+import { getAdjacentSpaces, getSpace } from '../mapData';
 import { getAllPieces, isInSupply } from '../engine';
 import {
   TotalWarState,
@@ -497,34 +497,37 @@ function getMinorPowerHomeSpace(
 
 /**
  * Get the list of supply spaces relevant for a minor power.
- * Minor powers can use standard supply spaces plus any special ones from
- * expansion supply source markers.
+ * Minor powers trace their own supply lines independently from their
+ * controller (per rulebook). Each minor power has its own limited set
+ * of supply spaces — NOT all 12 base game supply spaces.
  */
 function getMinorPowerSupplySpaces(
   minorPower: MinorPower,
   twState: TotalWarState
 ): string[] {
-  const spaces = [...SUPPLY_SPACE_IDS];
-
   if (minorPower === 'FRANCE') {
+    const spaces = ['western_europe']; // France home — always a supply space
+    // Government in Exile allows UK as home/supply
+    if (twState.franceHomeIsUK) {
+      spaces.push('united_kingdom');
+    }
     // France gains africa as supply source from Senegalese Tirailleurs
     if (twState.supplySourceMarkers.africa) {
       spaces.push('africa');
     }
-    // Government in Exile allows UK as home/supply
-    if (twState.franceHomeIsUK) {
-      if (!spaces.includes('united_kingdom')) spaces.push('united_kingdom');
-    }
+    return spaces;
   }
 
   if (minorPower === 'CHINA') {
+    const spaces = ['china', 'india']; // China home + India (adjacent supply space)
     // American Volunteer Group Expands makes szechuan a supply source
     if (twState.supplySourceMarkers.szechuan_china) {
       spaces.push('szechuan');
     }
+    return spaces;
   }
 
-  return spaces;
+  return [];
 }
 
 // ---------------------------------------------------------------------------
@@ -536,8 +539,9 @@ function getMinorPowerSupplySpaces(
  * controller's Victory step.  Returns the VP earned.
  *
  * A minor power "controls" a supply space if it has a minor power army in
- * that space that is in supply.  Follows the same VP rules as major powers:
- * 2 VP if sole controller, 1 VP if shared with an allied piece.
+ * that space that is in supply.  VP rules:
+ * - 2 VP if sole army in that supply space
+ * - 1 VP if ANY other army (allied or enemy) also in that supply space
  */
 export function calculateMinorPowerVP(
   minorPower: MinorPower,
@@ -547,7 +551,6 @@ export function calculateMinorPowerVP(
   const allPieces = getAllPieces(state);
   const myPieces = twState.minorPowerPieces.filter((mp) => mp.minorPower === minorPower);
   const supplyChain = computeMinorPowerSupply(minorPower, allPieces, myPieces, state, twState);
-  const controllerTeam = getTeam(MINOR_POWER_CONTROLLER[minorPower]);
 
   let vp = 0;
   const supplySpaces = getMinorPowerSupplySpaces(minorPower, twState);
@@ -559,30 +562,89 @@ export function calculateMinorPowerVP(
     );
     if (!hasSuppliedArmy) continue;
 
-    // Check if enemy also has an army in this supply space
-    const enemyHasArmy = allPieces.some(
-      (p) =>
-        p.spaceId === spId &&
-        p.type === 'army' &&
-        getTeam(p.country) !== controllerTeam
+    // Check if ANY other army (allied or enemy major power) is in this supply space
+    const otherMajorHasArmy = allPieces.some(
+      (p) => p.spaceId === spId && p.type === 'army'
     );
-    // Also check enemy minor power armies
-    const enemyMinorHasArmy = twState.minorPowerPieces.some(
+    // Check if any other minor power army is in this supply space
+    const otherMinorHasArmy = twState.minorPowerPieces.some(
       (mp) =>
         mp.spaceId === spId &&
         mp.type === 'army' &&
-        mp.minorPower !== minorPower &&
-        getTeam(MINOR_POWER_CONTROLLER[mp.minorPower]) !== controllerTeam
+        mp.minorPower !== minorPower
     );
 
-    if (enemyHasArmy || enemyMinorHasArmy) {
-      vp += 1; // Shared
+    if (otherMajorHasArmy || otherMinorHasArmy) {
+      vp += 1; // Shared with any other army
     } else {
       vp += 2; // Sole control
     }
   }
 
   return vp;
+}
+
+/**
+ * Calculate the VP adjustment for a major power due to sharing supply spaces
+ * with minor power armies. The base game's calculateVictoryPoints only knows
+ * about major power pieces, so it doesn't account for minor power armies
+ * in the same supply space.
+ *
+ * Rule: ANY army in a supply space causes sharing (1VP each, not 2VP).
+ * This includes minor power armies (France, China) sharing with ANY major power.
+ *
+ * Example: France army + USA army in western_europe → both UK and USA score 1VP
+ * (not 2VP) for that space.
+ *
+ * Returns a NEGATIVE number to subtract from the scoring country's team VP.
+ *
+ * @param scoringCountry — the major power whose VP is being calculated
+ */
+export function calculateVPAdjustmentForMinorSharing(
+  scoringCountry: Country,
+  twState: TotalWarState,
+  state: GameState
+): number {
+  const minorPieces = twState.minorPowerPieces;
+  if (minorPieces.length === 0) return 0;
+
+  const scoringState = state.countries[scoringCountry];
+  if (!scoringState) return 0;
+
+  const allPieces = getAllPieces(state);
+  const scoringTeam = getTeam(scoringCountry);
+  const enemyTeam = scoringTeam === Team.AXIS ? Team.ALLIES : Team.AXIS;
+  let adjustment = 0;
+
+  // For each supply space where this major power has an army...
+  const checkedSpaces = new Set<string>();
+  for (const piece of scoringState.piecesOnBoard) {
+    if (piece.type !== 'army') continue;
+    const space = getSpace(piece.spaceId);
+    if (!space?.isSupplySpace) continue;
+    if (checkedSpaces.has(piece.spaceId)) continue;
+    checkedSpaces.add(piece.spaceId);
+
+    // Does ANY minor power army also occupy this supply space?
+    const minorArmyHere = minorPieces.some(
+      (mp) => mp.spaceId === piece.spaceId && mp.type === 'army'
+    );
+    if (!minorArmyHere) continue;
+
+    // The base game checks only major power enemy armies for sharing.
+    // If an enemy major power army is already there, base game scored 1VP
+    // (already shared). Minor power presence doesn't change that.
+    const enemyMajorHasArmy = allPieces.some(
+      (p) => p.spaceId === piece.spaceId && p.type === 'army' && getTeam(p.country) === enemyTeam
+    );
+    if (!enemyMajorHasArmy) {
+      // Base game scored 2VP (sole) but a minor power army is also here,
+      // so it should be 1VP (shared) → subtract 1
+      adjustment -= 1;
+    }
+  }
+
+  return adjustment;
 }
 
 // ---------------------------------------------------------------------------

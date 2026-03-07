@@ -127,102 +127,41 @@ export function aiChooseAirStepAction(
     return options[Math.floor(Math.random() * options.length)];
   }
 
-  // Medium/Hard: scored priority system
-  // Priority: Gain Superiority (high-value) > Deploy (good location) > Marshal > Skip
+  // Medium/Hard: always play air power if possible, never skip
+  // Priority: GAIN_SUPERIORITY > DEPLOY > MARSHAL > SKIP (last resort only)
 
-  let bestAction: { action: 'DEPLOY' | 'MARSHAL' | 'GAIN_SUPERIORITY' | 'SKIP'; minorPower?: MinorPower } = { action: 'SKIP' };
-  let bestScore = 0; // SKIP baseline is 0
-
-  // --- Gain Superiority ---
+  // --- Gain Superiority (highest priority) ---
   if (canGainSuperiority(country, state, twState)) {
-    const targets = getValidSuperiorityTargets(country, state, twState);
-    if (targets.length > 0) {
-      // Score each target
-      let maxTargetScore = 0;
-      for (const target of targets) {
-        let tScore = 20; // base value of eliminating enemy AF
-        // Higher value if target is near our important spaces
-        if (SUPPLY_SPACE_IDS.includes(target.spaceId)) tScore += 10;
-        if (target.spaceId === HOME_SPACES[country]) tScore += 15;
-        // Adjacent to our supply spaces
-        const adj = getAdjacentSpaces(target.spaceId);
-        const nearOurSupply = adj.some((a) => SUPPLY_SPACE_IDS.includes(a));
-        if (nearOurSupply) tScore += 5;
-        if (tScore > maxTargetScore) maxTargetScore = tScore;
-      }
-      const superiorityScore = maxTargetScore + (difficulty === 'hard' ? 5 : 0);
-      if (superiorityScore > bestScore) {
-        bestScore = superiorityScore;
-        bestAction = { action: 'GAIN_SUPERIORITY' };
-      }
-    }
+    return { action: 'GAIN_SUPERIORITY' };
   }
 
-  // --- Deploy ---
-  const checkDeploy = (minorPower?: MinorPower) => {
-    if (!canDeploy(country, state, twState, minorPower)) return;
-    const locations = getValidDeployLocations(country, state, twState, minorPower);
-    if (locations.length === 0) return;
-
-    let maxLocScore = 0;
-    for (const loc of locations) {
-      const locScore = scoreSpaceForAF(loc, country, state, twState);
-      if (locScore > maxLocScore) maxLocScore = locScore;
-    }
-
-    // Deploy base value: getting an AF on the board is good
-    const deployScore = 15 + maxLocScore * 0.5 + (difficulty === 'hard' ? 3 : 0);
-    if (deployScore > bestScore) {
-      bestScore = deployScore;
-      bestAction = { action: 'DEPLOY', minorPower };
-    }
-  };
-
-  checkDeploy();
+  // --- Deploy (second priority) ---
+  // Check main country deploy
+  if (canDeploy(country, state, twState)) {
+    return { action: 'DEPLOY' };
+  }
   // Check minor power deploy for controller
   const controlledMinors: MinorPower[] = (['FRANCE', 'CHINA'] as MinorPower[]).filter(
     (mp) => MINOR_POWER_CONTROLLER[mp] === country
   );
   for (const mp of controlledMinors) {
-    checkDeploy(mp);
+    if (canDeploy(country, state, twState, mp)) {
+      return { action: 'DEPLOY', minorPower: mp };
+    }
   }
 
-  // --- Marshal ---
-  const checkMarshal = (minorPower?: MinorPower) => {
-    if (!canMarshal(country, state, twState, minorPower)) return;
-    const sources = getValidMarshalSources(country, state, twState, minorPower);
-    if (sources.length === 0) return;
-
-    let bestMoveImprovement = 0;
-    for (const af of sources) {
-      const currentScore = scoreSpaceForAF(af.spaceId, country, state, twState);
-      const dests = getValidMarshalDestinations(af.id, country, state, twState, minorPower);
-      for (const dest of dests) {
-        const destScore = scoreSpaceForAF(dest, country, state, twState);
-        const improvement = destScore - currentScore;
-        if (improvement > bestMoveImprovement) bestMoveImprovement = improvement;
-      }
-    }
-
-    // Only marshal if we gain meaningful improvement
-    // The cost is discarding any card, so improvement must justify that
-    const marshalScore = bestMoveImprovement > 5
-      ? 10 + bestMoveImprovement * 0.5
-      : 0;
-    if (marshalScore > bestScore) {
-      bestScore = marshalScore;
-      bestAction = { action: 'MARSHAL', minorPower };
-    }
-  };
-
-  checkMarshal();
+  // --- Marshal (third priority) ---
+  if (canMarshal(country, state, twState)) {
+    return { action: 'MARSHAL' };
+  }
   for (const mp of controlledMinors) {
-    checkMarshal(mp);
+    if (canMarshal(country, state, twState, mp)) {
+      return { action: 'MARSHAL', minorPower: mp };
+    }
   }
 
-  // Add small random noise (less for hard)
-  // Already evaluated — just return best
-  return bestAction;
+  // --- Skip (absolute last resort) ---
+  return { action: 'SKIP' };
 }
 
 // ---------------------------------------------------------------------------
@@ -349,40 +288,14 @@ export function aiPickSuperiorityTarget(
 
 /**
  * AI decides whether to use Air Defense (sacrifice AF to save Army/Navy).
+ * Always sacrifice the AF — keeping a unit on the board is more valuable.
  */
 export function aiShouldUseAirDefense(
-  country: Country,
-  state: GameState,
-  twState: TotalWarState,
-  difficulty: 'easy' | 'medium' | 'hard'
+  _country: Country,
+  _state: GameState,
+  _twState: TotalWarState,
+  _difficulty: 'easy' | 'medium' | 'hard'
 ): boolean {
-  // Easy: always use (reflex save)
-  if (difficulty === 'easy') return true;
-
-  // Medium: use unless we have plenty of pieces and few AFs
-  if (difficulty === 'medium') {
-    const countryPieces = state.countries[country].piecesOnBoard;
-    const myAFs = twState.airForces.filter(
-      (af) => af.country === country && !af.minorPower
-    );
-    // If we have many pieces on board (5+) and only one AF, don't sacrifice
-    if (countryPieces.length >= 5 && myAFs.length <= 1) return false;
-    return true;
-  }
-
-  // Hard: evaluate piece value vs AF value
-  const countryPieces = state.countries[country].piecesOnBoard;
-  const myAFs = twState.airForces.filter(
-    (af) => af.country === country && !af.minorPower
-  );
-
-  // Always save if we have few pieces (3 or fewer) — every piece counts
-  if (countryPieces.length <= 3) return true;
-
-  // Don't sacrifice our last AF if we have healthy board presence
-  if (myAFs.length <= 1 && countryPieces.length >= 5) return false;
-
-  // With multiple AFs, usually worth saving the piece
   return true;
 }
 

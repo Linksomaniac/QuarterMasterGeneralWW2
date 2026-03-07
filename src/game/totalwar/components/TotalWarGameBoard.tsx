@@ -27,6 +27,7 @@ import {
   MINOR_POWER_TEXT_ON_BG,
   MINOR_POWER_PIECES,
   AIR_FORCE_LIMITS,
+  MINOR_POWER_AF_LIMITS,
 } from '../types';
 
 const BOARD_FRAME = '#D4C090';
@@ -387,8 +388,8 @@ export default function TotalWarGameBoard() {
             TURN SEQUENCE
           </text>
           <line x1={8} y1={22} x2={148} y2={22} stroke="#bbb" strokeWidth={0.5} />
-          {['1. Play Step', '2. Supply Step', '3. Victory Step', '4. Discard Step', '5. Draw Step'].map((step, i) => (
-            <text key={i} x={12} y={35 + i * 12} fontSize={9} fill="#555" fontFamily="Inter, sans-serif">{step}</text>
+          {['1. Play Step', '2. Air Step', '3. Supply Step', '4. Victory Step', '5. Discard Step', '6. Draw Step'].map((step, i) => (
+            <text key={i} x={12} y={33 + i * 10} fontSize={8} fill="#555" fontFamily="Inter, sans-serif">{step}</text>
           ))}
         </g>
 
@@ -420,7 +421,7 @@ export default function TotalWarGameBoard() {
         <g transform={`translate(${TOTAL_W - 370}, ${MAP_HEIGHT + 145})`}>
           {/* France */}
           <g>
-            <rect x={-2} y={-6} width={80} height={18} rx={3} fill={MINOR_POWER_COLORS.FRANCE} opacity={0.15} />
+            <rect x={-2} y={-6} width={110} height={18} rx={3} fill={MINOR_POWER_COLORS.FRANCE} opacity={0.15} />
             <text x={2} y={5} fontSize={7} fill={MINOR_POWER_COLORS.FRANCE} fontWeight="bold" fontFamily="Inter, sans-serif">FRA</text>
             {Array.from({ length: Math.max(0, MINOR_POWER_PIECES.FRANCE.armies - franceOnBoard.armies) }, (_, i) => (
               <SmallArmyIcon key={`fa${i}`} x={24 + i * 8} y={-6} color={MINOR_POWER_COLORS.FRANCE} />
@@ -428,13 +429,19 @@ export default function TotalWarGameBoard() {
             {Array.from({ length: Math.max(0, MINOR_POWER_PIECES.FRANCE.navies - franceOnBoard.navies) }, (_, i) => (
               <SmallNavyIcon key={`fn${i}`} x={52 + i * 8} y={-6} color={MINOR_POWER_COLORS.FRANCE} />
             ))}
+            {Array.from({ length: Math.max(0, MINOR_POWER_AF_LIMITS.FRANCE - franceOnBoard.afs) }, (_, i) => (
+              <SmallAFIcon key={`faf${i}`} x={80 + i * 8} y={-6} color={MINOR_POWER_COLORS.FRANCE} />
+            ))}
           </g>
           {/* China */}
-          <g transform="translate(90, 0)">
-            <rect x={-2} y={-6} width={80} height={18} rx={3} fill={MINOR_POWER_COLORS.CHINA} opacity={0.15} />
-            <text x={2} y={5} fontSize={7} fill="#888" fontWeight="bold" fontFamily="Inter, sans-serif">CHN</text>
+          <g transform="translate(120, 0)">
+            <rect x={-2} y={-6} width={100} height={18} rx={3} fill={MINOR_POWER_COLORS.CHINA} opacity={0.15} />
+            <text x={2} y={5} fontSize={7} fill={MINOR_POWER_COLORS.CHINA} fontWeight="bold" fontFamily="Inter, sans-serif">CHN</text>
             {Array.from({ length: Math.max(0, MINOR_POWER_PIECES.CHINA.armies - chinaOnBoard.armies) }, (_, i) => (
               <SmallArmyIcon key={`ca${i}`} x={24 + i * 8} y={-6} color={MINOR_POWER_COLORS.CHINA} />
+            ))}
+            {Array.from({ length: Math.max(0, MINOR_POWER_AF_LIMITS.CHINA - chinaOnBoard.afs) }, (_, i) => (
+              <SmallAFIcon key={`caf${i}`} x={48 + i * 8} y={-6} color={MINOR_POWER_COLORS.CHINA} />
             ))}
           </g>
         </g>
