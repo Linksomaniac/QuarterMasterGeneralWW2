@@ -42,6 +42,9 @@ export function useTotalWarController() {
   const bolsterProcessingRef = useRef(false);
   const airCombatProcessingRef = useRef(false);
   const playStepOfferedRef = useRef(-1); // tracks currentCountryIndex where we offered reallocate
+  // Tracks which step-begin bolster triggers have been fired for the current turn.
+  // Prevents re-firing when the phase resumes back after a bolster prompt is resolved.
+  const stepBolstersFiredRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     const twState = useTotalWarStore.getState();
@@ -121,18 +124,24 @@ export function useTotalWarController() {
           const twStore = useTotalWarStore.getState();
           twStore.enterAirStep(country);
 
-          // Fire AIR_STEP_BEGIN bolsters
-          fireBolsterTrigger('AIR_STEP_BEGIN', country);
+          // Fire AIR_STEP_BEGIN bolsters.
+          // If a human bolster prompt was set, don't overwrite it — the Air Step
+          // choice screen will appear naturally after the bolster is resolved
+          // (AirStepOverlay checks airStepCountry which is still set).
+          const bolsterFired = fireBolsterTrigger('AIR_STEP_BEGIN', country);
 
           const cs = state.countries[country];
           if (!cs.isHuman) {
+            // AI: bolsters were auto-resolved, proceed to air step
             resolveAiAirStep(country);
-          } else {
+          } else if (!bolsterFired) {
+            // Human with no bolster: show air step choice directly
             twStore.setPendingTotalWarAction({
               type: 'AIR_STEP_CHOICE',
               country,
             });
           }
+          // else: human bolster prompt is showing; Air Step choice appears after
           return;
         }
       }
@@ -152,6 +161,7 @@ export function useTotalWarController() {
         playStepOfferedRef.current = currentIdx;
 
         airStepDoneRef.current = false;
+        stepBolstersFiredRef.current.clear();
         clearTurnTracking();
 
         const playCountry = getCurrentCountry(state);
@@ -181,20 +191,32 @@ export function useTotalWarController() {
 
       // --- VICTORY_STEP: fire bolsters ---
       if (phase === GamePhase.VICTORY_STEP && prevPhase !== GamePhase.VICTORY_STEP) {
-        const vicCountry = getCurrentCountry(state);
-        fireBolsterTrigger('VICTORY_STEP_BEGIN', vicCountry);
+        const vicKey = `${state.currentCountryIndex}_VICTORY`;
+        if (!stepBolstersFiredRef.current.has(vicKey)) {
+          stepBolstersFiredRef.current.add(vicKey);
+          const vicCountry = getCurrentCountry(state);
+          fireBolsterTrigger('VICTORY_STEP_BEGIN', vicCountry);
+        }
       }
 
       // --- DRAW_STEP: fire bolsters ---
       if (phase === GamePhase.DRAW_STEP && prevPhase !== GamePhase.DRAW_STEP) {
-        const drawCountry = getCurrentCountry(state);
-        fireBolsterTrigger('DRAW_STEP_BEGIN', drawCountry);
+        const drawKey = `${state.currentCountryIndex}_DRAW`;
+        if (!stepBolstersFiredRef.current.has(drawKey)) {
+          stepBolstersFiredRef.current.add(drawKey);
+          const drawCountry = getCurrentCountry(state);
+          fireBolsterTrigger('DRAW_STEP_BEGIN', drawCountry);
+        }
       }
 
       // --- DISCARD_STEP: fire bolsters ---
       if (phase === GamePhase.DISCARD_STEP && prevPhase !== GamePhase.DISCARD_STEP) {
-        const discCountry = getCurrentCountry(state);
-        fireBolsterTrigger('DISCARD_STEP_BEGIN', discCountry);
+        const discKey = `${state.currentCountryIndex}_DISCARD`;
+        if (!stepBolstersFiredRef.current.has(discKey)) {
+          stepBolstersFiredRef.current.add(discKey);
+          const discCountry = getCurrentCountry(state);
+          fireBolsterTrigger('DISCARD_STEP_BEGIN', discCountry);
+        }
       }
     });
 
@@ -322,10 +344,10 @@ export function useTotalWarController() {
       const tw = useTotalWarStore.getState();
       if (!tw.enabled) return;
 
-      // Only check during play phases
+      // Skip during setup and game-over phases
       const phase = state.phase;
-      if (phase !== GamePhase.PLAY_STEP && phase !== GamePhase.AWAITING_RESPONSE &&
-          phase !== GamePhase.SUPPLY_STEP) return;
+      if (phase === GamePhase.SETUP || phase === GamePhase.SETUP_DISCARD ||
+          phase === GamePhase.GAME_OVER) return;
 
       // Detect new log entries
       if (state.log.length <= prevState.log.length) return;
@@ -360,6 +382,18 @@ export function useTotalWarController() {
               fireBolsterTrigger('GERMANY_PLAYS_SUBMARINE', logCountry);
             }
           }
+          // TARGET_OF_EW trigger: when a country is targeted by EW
+          // Log messages: "<cardName>: <CountryName> discards X from deck"
+          //            or "<cardName>: <CountryName> deck empty — X VP lost"
+          else if (msg.includes('discards') && msg.includes('from deck')) {
+            // Identify the target country from the message
+            for (const c of TURN_ORDER) {
+              if (msg.includes(COUNTRY_NAMES[c])) {
+                fireBolsterTrigger('TARGET_OF_EW', c);
+                break;
+              }
+            }
+          }
           // Status card play trigger (Axis)
           else if (msg.includes('Played') && msg.includes('Status') &&
                    getTeam(logCountry) === Team.AXIS) {
@@ -368,6 +402,10 @@ export function useTotalWarController() {
           // DEPLOY/MARSHAL AF trigger
           else if (msg.includes('Air Step: Deployed') || msg.includes('Air Step: Marshalled')) {
             fireBolsterTrigger('DEPLOY_OR_MARSHAL_AF', logCountry);
+          }
+          // AXIS_USES_BOLSTER trigger: when an Axis country uses a bolster
+          else if (msg.startsWith('Bolster:') && getTeam(logCountry) === Team.AXIS) {
+            fireBolsterTrigger('AXIS_USES_BOLSTER', logCountry);
           }
           // Army eliminated (for TARGET_OF_EW, ARMY_BATTLED, ARMY_REMOVED)
           else if (msg.startsWith('Eliminated enemy')) {

@@ -160,6 +160,25 @@ export function fireBolsterTrigger(
   // Queue human bolsters
   if (humanMatches.length === 0) return false;
 
+  // Check if there's already a pending bolster prompt — if so, append to its queue
+  // (this happens when multiple triggers fire at the same moment, e.g.
+  // PLAY_STEP_BEGIN + ANY_PLAYER_PLAY_STEP during the same phase transition)
+  const existingAction = useTotalWarStore.getState().pendingTotalWarAction;
+  if (existingAction && existingAction.type === 'BOLSTER_OPPORTUNITY') {
+    const newEntries = humanMatches.map((m) => ({
+      cardId: m.cardId,
+      cardName: m.card.name,
+      description: m.card.text || '',
+      country: m.country,
+      trigger,
+    }));
+    useTotalWarStore.getState().setPendingTotalWarAction({
+      ...existingAction,
+      allBolsters: [...(existingAction.allBolsters || []), ...newEntries],
+    });
+    return true;
+  }
+
   // Show the first human bolster as a prompt
   const first = humanMatches[0];
   const rest = humanMatches.slice(1);
