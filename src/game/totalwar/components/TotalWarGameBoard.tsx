@@ -161,6 +161,9 @@ export default function TotalWarGameBoard() {
   if (twPendingAction?.type === 'SELECT_AF_DEPLOY_LOCATION') {
     twPendingAction.validSpaces.forEach((s) => validSpaces.add(s));
   }
+  if (twPendingAction?.type === 'SELECT_AF_MARSHAL_DESTINATION') {
+    twPendingAction.validSpaces.forEach((s) => validSpaces.add(s));
+  }
 
   const currentCountry = getCurrentCountry(state);
 
@@ -219,6 +222,38 @@ export default function TotalWarGameBoard() {
     if (tw.pendingTotalWarAction?.type === 'REPOSITION_AIR_FORCE') {
       tw.moveAirForce(tw.pendingTotalWarAction.afId, spaceId);
       tw.setPendingTotalWarAction(null);
+      return;
+    }
+    if (
+      tw.pendingTotalWarAction?.type === 'SELECT_AF_DEPLOY_LOCATION' &&
+      tw.pendingTotalWarAction.validSpaces.includes(spaceId)
+    ) {
+      const { country, minorPower } = tw.pendingTotalWarAction;
+      tw.addAirForce({
+        id: `af_${country}_${Date.now()}`,
+        country,
+        minorPower,
+        type: 'air_force',
+        spaceId,
+      });
+      useGameStore.setState((s) => ({
+        log: [...s.log, { country, message: `Air Step: Deployed Air Force to ${spaceId.replace(/_/g, ' ')}`, round: s.round, timestamp: Date.now() }],
+      }));
+      tw.setPendingTotalWarAction(null);
+      tw.completeAirStep();
+      return;
+    }
+    if (
+      tw.pendingTotalWarAction?.type === 'SELECT_AF_MARSHAL_DESTINATION' &&
+      tw.pendingTotalWarAction.validSpaces.includes(spaceId)
+    ) {
+      const { country, afId } = tw.pendingTotalWarAction;
+      tw.moveAirForce(afId, spaceId);
+      useGameStore.setState((s) => ({
+        log: [...s.log, { country, message: `Air Step: Marshalled Air Force to ${spaceId.replace(/_/g, ' ')}`, round: s.round, timestamp: Date.now() }],
+      }));
+      tw.setPendingTotalWarAction(null);
+      tw.completeAirStep();
       return;
     }
     handleSpaceClick(spaceId);
