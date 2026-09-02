@@ -33,8 +33,11 @@ export default function TotalWarGameView() {
         <div className="flex-1 flex flex-col overflow-hidden">
           <div className="flex-1 p-2 overflow-auto relative">
             <TotalWarGameBoard />
-            {/* Air Step choice overlay — only for human players (AI resolves automatically) */}
-            {inAirStep && pendingAction?.type === 'AIR_STEP_CHOICE' && <AirStepOverlay />}
+            {/* Air Step overlay — only for human players (AI resolves automatically).
+                Stays mounted for the whole Air Step (choice + follow-up
+                card/space/target selection), not just the initial choice —
+                otherwise the follow-up steps have no UI and the turn stalls. */}
+            {inAirStep && <AirStepOverlay />}
             {/* Bolster prompt */}
             {pendingAction?.type === 'BOLSTER_OPPORTUNITY' && <BolsterPrompt />}
             {/* Air Defense / Air Attack prompts */}
