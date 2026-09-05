@@ -2526,6 +2526,10 @@ export function findProtectionResponses(
         if (effect.condition === 'supplied' && piece) {
           if (!isInSupply(piece, state)) continue;
         }
+        if (effect.condition === 'uk_supplied_army') {
+          if (eliminatedPieceCountry !== Country.UK) continue;
+          if (piece && !isInSupply(piece, state)) continue;
+        }
 
         results.push({ country: c, card });
         break;

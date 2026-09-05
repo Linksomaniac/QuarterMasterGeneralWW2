@@ -239,7 +239,7 @@ const UK_UNIQUE: Card[] = [
     [{ type: 'DISCARD_CARDS', count: 0, condition: 'cancel_ew_card' }]),
   makeCard('uk_defensive_posture', 'Defensive Posture', Country.UK, CardType.RESPONSE,
     'Use when your supplied army is about to be removed. Do not remove that Army this turn.',
-    [{ type: 'PROTECT_PIECE', pieceType: 'army', duration: 'turn' }]),
+    [{ type: 'PROTECT_PIECE', pieceType: 'army', duration: 'turn', condition: 'uk_supplied_army' }]),
   makeCard('uk_destroyers', 'Destroyers', Country.UK, CardType.RESPONSE,
     'Use when a supplied United States or United Kingdom Navy is about to be removed. Do not remove that Navy this turn.',
     [{ type: 'PROTECT_PIECE', pieceType: 'navy', duration: 'turn', condition: 'us_or_uk_navy' }]),
