@@ -2751,6 +2751,9 @@ export function findOffensiveResponses(
           break;
         }
 
+        // 'adjacent' (Bias for Action) only ever triggers off a build, never off a battle.
+        if (effect.condition === 'adjacent') continue;
+
         if (!isBattleTrigger) continue;
         const battleTypeMatch =
           !effect.battleType ||
