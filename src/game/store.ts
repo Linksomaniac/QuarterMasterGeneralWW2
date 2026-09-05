@@ -2751,6 +2751,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
                 ns3 = resolveBuildAction(res2, nextPA.pieceType, country, ns3);
                 ns3 = addLogEntry(ns3, country, `Built ${nextPA.pieceType} in ${res2.replace(/_/g, ' ')}`);
               } else if (nextPA.type === 'SELECT_BATTLE_TARGET') {
+                // Give the defender a chance to play a protection Response
+                // card (Leningrad, Moscow, Stalingrad, Monte Cassino, etc.)
+                // before this alt-action battle removes their piece.
+                if (tryOfferEventBattleProtection('land_battle', res2, country, alt.card.name, [], ns3, set, get)) return;
                 ns3 = resolveBattleAction(res2, country, ns3);
               }
               logged = ns3;
@@ -2792,6 +2796,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
               ns = resolveBuildAction(res, altPA.pieceType, country, ns);
               ns = addLogEntry(ns, country, `Built ${altPA.pieceType} in ${res.replace(/_/g, ' ')}`);
             } else if (altPA.type === 'SELECT_BATTLE_TARGET') {
+              // Give the defender a chance to play a protection Response card
+              // (Leningrad, Moscow, Stalingrad, Monte Cassino, etc.) before
+              // this alt-action battle (e.g. Bravado) removes their piece.
+              if (tryOfferEventBattleProtection('land_battle', res, country, alt.card.name, [], ns, set, get)) return;
               ns = resolveBattleAction(res, country, ns);
             }
             logged = ns;

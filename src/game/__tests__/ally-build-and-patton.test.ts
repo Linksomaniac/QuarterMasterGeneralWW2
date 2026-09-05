@@ -218,3 +218,155 @@ describe('removeOwnPiece lets a human voluntarily remove their own pieces', () =
     expect(s.countries[Country.GERMANY].piecesOnBoard.some((p) => p.id === 'test_ger_army')).toBe(true);
   });
 });
+
+describe('Bravado battle respects Soviet protection Response cards', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    useGameStore.getState().initGame([
+      { country: Country.GERMANY, isHuman: false, aiDifficulty: 'easy' },
+      { country: Country.UK, isHuman: false, aiDifficulty: 'easy' },
+      { country: Country.JAPAN, isHuman: false, aiDifficulty: 'easy' },
+      { country: Country.SOVIET_UNION, isHuman: true, aiDifficulty: 'easy' },
+      { country: Country.ITALY, isHuman: true, aiDifficulty: 'easy' },
+      { country: Country.USA, isHuman: false, aiDifficulty: 'easy' },
+    ]);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('offers the Soviet Union a chance to protect its Army before Bravado eliminates it', () => {
+    const bravado = findCard(Country.ITALY, 'ita_bravado');
+    const stalingrad = findCard(Country.SOVIET_UNION, 'ussr_stalingrad');
+    const cleared = clearedCountries();
+
+    useGameStore.setState({
+      phase: GamePhase.PLAY_STEP,
+      round: 3,
+      currentCountryIndex: 4, // Italy
+      pendingAction: null,
+      selectedCard: null,
+      actionContext: undefined,
+      countries: {
+        ...cleared,
+        [Country.ITALY]: {
+          ...cleared[Country.ITALY],
+          statusCards: [bravado],
+          piecesOnBoard: [
+            { id: 'test_ita_army', country: Country.ITALY, type: 'army', spaceId: 'balkans' },
+          ],
+        },
+        [Country.SOVIET_UNION]: {
+          ...cleared[Country.SOVIET_UNION],
+          responseCards: [{ ...stalingrad, id: 'test_stalingrad', country: Country.SOVIET_UNION }],
+          piecesOnBoard: [
+            { id: 'test_ussr_army', country: Country.SOVIET_UNION, type: 'army', spaceId: 'ukraine' },
+          ],
+        },
+      },
+    });
+
+    useGameStore.getState().useAlternativeAction(bravado.id);
+    vi.runAllTimers();
+
+    let s = useGameStore.getState();
+
+    // The battle itself requires confirming the (single) target space, just
+    // like a normal battle card, rather than resolving silently.
+    expect(s.pendingAction?.type).toBe('SELECT_BATTLE_TARGET');
+    if (s.pendingAction?.type === 'SELECT_BATTLE_TARGET') {
+      expect(s.pendingAction.validTargets).toEqual(['ukraine']);
+      useGameStore.getState().handleSpaceClick('ukraine');
+      vi.runAllTimers();
+    }
+
+    s = useGameStore.getState();
+
+    // Before the Soviet Army is eliminated, the Soviet Union (human) must be
+    // offered the chance to use Stalingrad — Bravado must not behave like an
+    // unconditional elimination.
+    expect(s.pendingAction?.type).toBe('RESPONSE_OPPORTUNITY');
+    if (s.pendingAction?.type === 'RESPONSE_OPPORTUNITY') {
+      expect(s.pendingAction.responseCountry).toBe(Country.SOVIET_UNION);
+      expect(s.pendingAction.eliminatedPieceCountry).toBe(Country.SOVIET_UNION);
+    }
+
+    // Soviet army must still be on the board awaiting the decision.
+    expect(s.countries[Country.SOVIET_UNION].piecesOnBoard.some((p) => p.id === 'test_ussr_army')).toBe(true);
+
+    // Decline the protection — the Army should now actually be eliminated.
+    useGameStore.getState().respondToOpportunity(false);
+    vi.runAllTimers();
+
+    s = useGameStore.getState();
+    expect(s.countries[Country.SOVIET_UNION].piecesOnBoard.some((p) => p.id === 'test_ussr_army')).toBe(false);
+  });
+});
+
+describe('AI-driven Bravado also respects Soviet protection Response cards', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    useGameStore.getState().initGame([
+      { country: Country.GERMANY, isHuman: false, aiDifficulty: 'easy' },
+      { country: Country.UK, isHuman: false, aiDifficulty: 'easy' },
+      { country: Country.JAPAN, isHuman: false, aiDifficulty: 'easy' },
+      { country: Country.SOVIET_UNION, isHuman: true, aiDifficulty: 'easy' },
+      { country: Country.ITALY, isHuman: false, aiDifficulty: 'hard' },
+      { country: Country.USA, isHuman: false, aiDifficulty: 'easy' },
+    ]);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('offers the Soviet Union a chance to protect its Army when AI-Italy uses Bravado', async () => {
+    const bravado = findCard(Country.ITALY, 'ita_bravado');
+    const filler = findCard(Country.ITALY, 'ita_land_battle_1');
+    const stalingrad = findCard(Country.SOVIET_UNION, 'ussr_stalingrad');
+    const cleared = clearedCountries();
+
+    useGameStore.setState({
+      phase: GamePhase.PLAY_STEP,
+      round: 3,
+      currentCountryIndex: 4, // Italy
+      pendingAction: null,
+      selectedCard: null,
+      actionContext: undefined,
+      countries: {
+        ...cleared,
+        [Country.ITALY]: {
+          ...cleared[Country.ITALY],
+          hand: [filler],
+          statusCards: [bravado],
+          piecesOnBoard: [
+            { id: 'test_ita_army', country: Country.ITALY, type: 'army', spaceId: 'balkans' },
+          ],
+        },
+        [Country.SOVIET_UNION]: {
+          ...cleared[Country.SOVIET_UNION],
+          responseCards: [{ ...stalingrad, id: 'test_stalingrad', country: Country.SOVIET_UNION }],
+          piecesOnBoard: [
+            { id: 'test_ussr_army', country: Country.SOVIET_UNION, type: 'army', spaceId: 'ukraine' },
+          ],
+        },
+      },
+    });
+
+    await useGameStore.getState().executeAiTurn();
+    vi.runAllTimers();
+
+    const s = useGameStore.getState();
+
+    // Before the Soviet Army is eliminated, the human Soviet Union must be
+    // offered the chance to use Stalingrad — even when Bravado is played by
+    // the AI, not just when a human plays it.
+    expect(s.pendingAction?.type).toBe('RESPONSE_OPPORTUNITY');
+    if (s.pendingAction?.type === 'RESPONSE_OPPORTUNITY') {
+      expect(s.pendingAction.responseCountry).toBe(Country.SOVIET_UNION);
+      expect(s.pendingAction.eliminatedPieceCountry).toBe(Country.SOVIET_UNION);
+    }
+    expect(s.countries[Country.SOVIET_UNION].piecesOnBoard.some((p) => p.id === 'test_ussr_army')).toBe(true);
+  });
+});

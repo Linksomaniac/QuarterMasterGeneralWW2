@@ -4357,11 +4357,11 @@ export function executeStatusAlternativeAction(
       };
       ns = addLogEntry(ns, country, `${statusCard.name}: discarded 2 cards from deck`);
 
-      if (validTargets.length === 1) {
-        ns = resolveBattleAction(validTargets[0], country, ns);
-        ns = addLogEntry(ns, country, `${statusCard.name}: battled in ${getSpace(validTargets[0])?.name ?? validTargets[0]}`);
-        return { newState: ns, pendingAction: null };
-      }
+      // Always defer to SELECT_BATTLE_TARGET — even with a single valid
+      // target — so the normal battle pipeline gets a chance to offer the
+      // defender a protection Response card (Leningrad, Moscow, Stalingrad,
+      // Monte Cassino, etc.) before the piece is removed. Auto-resolving here
+      // would let Bravado bypass those Response cards entirely.
       return {
         newState: ns,
         pendingAction: { type: 'SELECT_BATTLE_TARGET', battleType: 'land', validTargets },
