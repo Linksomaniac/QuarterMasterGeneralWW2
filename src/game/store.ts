@@ -1081,6 +1081,19 @@ function processOffensiveResult(
   let pendingElim: PendingElimination | undefined;
 
   if (isStatusCard) {
+    const usingCs = ns.countries[country];
+    if (!usingCs.usedOffensiveCardsThisTurn.includes(card.id)) {
+      ns = {
+        ...ns,
+        countries: {
+          ...ns.countries,
+          [country]: { ...usingCs, usedOffensiveCardsThisTurn: [...usingCs.usedOffensiveCardsThisTurn, card.id] },
+        },
+      };
+    }
+  }
+
+  if (isStatusCard) {
     const enigmaResult = checkAndResolveEnigma(country, card.id, card.name, ns);
     ns = enigmaResult.newState;
     if (enigmaResult.enigmaPending) {

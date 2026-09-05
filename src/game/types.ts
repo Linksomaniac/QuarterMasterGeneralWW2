@@ -200,6 +200,7 @@ export interface CountryState {
   piecesOnBoard: Piece[];
   isHuman: boolean;
   aiDifficulty: 'easy' | 'medium' | 'hard';
+  usedOffensiveCardsThisTurn: string[];
 }
 
 export interface ProtectionEffect {
