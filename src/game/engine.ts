@@ -869,6 +869,9 @@ function executeEventCard(card: Card, country: Country, state: GameState): GameS
     }
 
     if (effect.type === 'LAND_BATTLE') {
+      // patton_battle is handled entirely through getEffectValidSpaces (requires
+      // an adjacent friendly army); reaching here means no legal target existed.
+      if (effect.condition === 'patton_battle') continue;
       const maxCount = effect.count ?? 1;
       let battled = 0;
       const targets = effect.where
@@ -1153,6 +1156,21 @@ function getEffectValidSpaces(
     return valid.length > 0 ? { action, spaces: valid, effectCountry, prompt: `Build ${pieceType}`, count: 1, skippable: false } : null;
   }
 
+  // Patton Advances: a genuine battle requires the attacker to actually have
+  // an army adjacent to the target (normally satisfied by the Army the same
+  // card just built in Western Europe), not just "an enemy army sits there".
+  if (effect.type === 'LAND_BATTLE' && effect.condition === 'patton_battle') {
+    const ownArmySpaces = new Set(
+      state.countries[country].piecesOnBoard.filter((p) => p.type === 'army').map((p) => p.spaceId)
+    );
+    const valid = (effect.where ?? []).filter((sid) => {
+      const hasEnemy = allPcs.some((p) => p.spaceId === sid && p.type === 'army' && getTeam(p.country) === enemyTeam);
+      if (!hasEnemy) return false;
+      return getAdjacentSpaces(sid).some((adj) => ownArmySpaces.has(adj));
+    });
+    return valid.length > 0 ? { action: 'land_battle', spaces: valid, effectCountry: country, prompt: `Battle a land space`, count: 1, skippable: false } : null;
+  }
+
   if (effect.type === 'LAND_BATTLE' && effect.where) {
     const valid = effect.where.filter((sid) =>
       allPcs.some((p) => p.spaceId === sid && p.type === 'army' && getTeam(p.country) === enemyTeam)
@@ -1300,6 +1318,92 @@ export interface EventBuildInfo {
   playingCountry: Country;
 }
 
+// ---------------------------------------------------------------------------
+// resolveAllyBuild — interactive resolution for BUILD_ALLY_ARMY effects (US
+// cards that let UK or the Soviet Union build/recruit a piece). The ally, not
+// the playing country, chooses the space; only an AI-controlled ally
+// auto-picks (via maybeSetOrAutoResolveEventSpace / humanCheckCountry).
+// ---------------------------------------------------------------------------
+function resolveAllyBuild(
+  condition: 'soviet_build_army' | 'uk_recruit_we_na_africa' | 'uk_build_army_and_navy' | 'uk_build_navy_only',
+  cardName: string,
+  playingCountry: Country,
+  remainingEffects: CardEffect[],
+  state: GameState
+): { newState: GameState; pendingAction: PendingAction | null } {
+  let ns = state;
+
+  const finishWith = (
+    action: 'recruit_army' | 'build_army' | 'build_navy',
+    ally: Country,
+    spaces: string[],
+    chainedRemaining: CardEffect[],
+    prompt: string
+  ): { newState: GameState; pendingAction: PendingAction | null } => {
+    if (spaces.length === 0) {
+      if (chainedRemaining.length > 0) return processEventEffects(chainedRemaining, cardName, playingCountry, ns);
+      return { newState: ns, pendingAction: null };
+    }
+    if (spaces.length === 1) {
+      ns = resolveEventEffectAtSpace(action, spaces[0], ally, playingCountry, ns, cardName);
+      if (chainedRemaining.length > 0) return processEventEffects(chainedRemaining, cardName, playingCountry, ns);
+      return { newState: ns, pendingAction: null };
+    }
+    return {
+      newState: ns,
+      pendingAction: {
+        type: 'SELECT_EVENT_SPACE',
+        eventCardName: cardName,
+        prompt,
+        validSpaces: spaces,
+        effectAction: action,
+        effectCountry: ally,
+        playingCountry,
+        humanCheckCountry: ally,
+        remaining: 1,
+        remainingEffects: chainedRemaining,
+        skippable: false,
+      },
+    };
+  };
+
+  if (condition === 'soviet_build_army') {
+    const ally = Country.SOVIET_UNION;
+    const spaces = getValidBuildLocations(ally, 'army', ns);
+    return finishWith('build_army', ally, spaces, remainingEffects, 'Choose where the Soviet Union builds an Army');
+  }
+
+  if (condition === 'uk_recruit_we_na_africa') {
+    const ally = Country.UK;
+    const targetSpaces = ['western_europe', 'north_africa', 'africa'];
+    const avail = getAvailablePieces(ally, ns);
+    let spaces: string[] = [];
+    if (avail.armies > 0) {
+      const allPcs = getAllPieces(ns);
+      spaces = targetSpaces.filter((sid) => {
+        const sp = getSpace(sid);
+        if (!sp || sp.type !== SpaceType.LAND) return false;
+        if (allPcs.some((p) => p.spaceId === sid && p.country === ally)) return false;
+        if (allPcs.some((p) => p.spaceId === sid && getTeam(p.country) !== getTeam(ally))) return false;
+        return true;
+      });
+    }
+    return finishWith('recruit_army', ally, spaces, remainingEffects, 'Choose where the United Kingdom recruits an Army');
+  }
+
+  if (condition === 'uk_build_navy_only') {
+    const ally = Country.UK;
+    const spaces = getValidBuildLocations(ally, 'navy', ns);
+    return finishWith('build_navy', ally, spaces, remainingEffects, 'Choose where the United Kingdom builds a Navy');
+  }
+
+  // uk_build_army_and_navy
+  const ally = Country.UK;
+  const armySpaces = getValidBuildLocations(ally, 'army', ns);
+  const navyEffect: CardEffect = { type: 'BUILD_ALLY_ARMY', condition: 'uk_build_navy_only' };
+  return finishWith('build_army', ally, armySpaces, [navyEffect, ...remainingEffects], 'Choose where the United Kingdom builds an Army');
+}
+
 export function processEventEffects(
   effects: CardEffect[],
   cardName: string,
@@ -1393,7 +1497,14 @@ export function processEventEffects(
       }
     }
 
-    if (choice && choice.spaces.length > 1) {
+    // Battles always go through the SELECT_EVENT_SPACE pendingAction — even
+    // with a single valid target — so the store layer gets a chance to offer
+    // the defender a protection Response card before the piece is removed.
+    // Builds/recruits keep resolving inline below when there's only one space
+    // (no defensive decision is needed for those).
+    const isBattleChoice = choice?.action === 'land_battle' || choice?.action === 'sea_battle';
+
+    if (choice && (choice.spaces.length > 1 || (isBattleChoice && choice.spaces.length === 1))) {
       return {
         newState: ns,
         pendingAction: {
@@ -1452,6 +1563,17 @@ export function processEventEffects(
         return { newState: ns, pendingAction: movePA };
       }
       continue;
+    }
+
+    // BUILD_ALLY_ARMY effects let an ally (UK/USSR) build off a US card. The
+    // ally — not the playing country — should choose the location, and only
+    // an AI-controlled ally auto-picks. See resolveAllyBuild for the shared logic.
+    if (effect.type === 'BUILD_ALLY_ARMY' &&
+        (effect.condition === 'soviet_build_army' ||
+         effect.condition === 'uk_recruit_we_na_africa' ||
+         effect.condition === 'uk_build_army_and_navy' ||
+         effect.condition === 'uk_build_navy_only')) {
+      return resolveAllyBuild(effect.condition, cardName, country, remainingEffects, ns);
     }
 
     const tempCard: Card = { id: 'temp', name: cardName, country, type: CardType.EVENT, text: '', effects: [effect] };

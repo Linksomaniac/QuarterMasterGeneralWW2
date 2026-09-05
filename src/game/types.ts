@@ -300,6 +300,10 @@ export type PendingAction =
       effectAction: 'recruit_army' | 'recruit_navy' | 'build_army' | 'build_navy' | 'land_battle' | 'sea_battle' | 'eliminate_army' | 'eliminate_navy' | 'build_french_army' | 'build_chinese_army' | 'build_french_navy';
       effectCountry: Country;
       playingCountry: Country;
+      // Which country's human/AI status gates this choice. Defaults to playingCountry
+      // when absent — set explicitly when the choice belongs to an ally that benefits
+      // from another country's card (e.g. UK/USSR building via a US event).
+      humanCheckCountry?: Country;
       remaining: number;
       remainingEffects: CardEffect[];
       skippable: boolean;

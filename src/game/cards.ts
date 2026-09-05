@@ -542,7 +542,7 @@ const USA_UNIQUE: Card[] = [
     [{ type: 'DISCARD_CARDS', count: 1, condition: 'discard_japanese_response' }]),
   makeCard('usa_patton_advances', 'Patton Advances', Country.USA, CardType.EVENT,
     'Build an Army in Western Europe; then battle in Germany or Italy.',
-    [{ type: 'BUILD_ARMY', where: ['western_europe'] }, { type: 'LAND_BATTLE', where: ['germany', 'italy'] }]),
+    [{ type: 'BUILD_ARMY', where: ['western_europe'] }, { type: 'LAND_BATTLE', where: ['germany', 'italy'], condition: 'patton_battle' }]),
   makeCard('usa_theater_shift', 'Theater Shift', Country.USA, CardType.EVENT,
     'One at a time, once per piece, you may eliminate each United States Army and Navy on the board and then build that piece.',
     [{ type: 'MOVE_PIECES' }]),

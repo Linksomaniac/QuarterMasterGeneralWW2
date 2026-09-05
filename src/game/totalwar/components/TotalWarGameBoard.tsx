@@ -39,7 +39,23 @@ const TOTAL_H = MAP_HEIGHT + BOTTOM_H;
 // Token components — same visual style as base GameBoard
 // ---------------------------------------------------------------------------
 
-function ArmyToken({ x, y, color, inSupply }: { x: number; y: number; color: string; inSupply: boolean }) {
+function RemoveButton({ onRemove }: { onRemove: () => void }) {
+  return (
+    <g
+      transform="translate(35, -1)"
+      cursor="pointer"
+      onClick={(e) => {
+        e.stopPropagation();
+        if (window.confirm('Remove this piece from the board?')) onRemove();
+      }}
+    >
+      <circle r={6} fill="#B00020" stroke="#fff" strokeWidth={1} />
+      <text textAnchor="middle" dominantBaseline="central" fontSize={8} fill="#fff" fontWeight="bold">✕</text>
+    </g>
+  );
+}
+
+function ArmyToken({ x, y, color, inSupply, onRemove }: { x: number; y: number; color: string; inSupply: boolean; onRemove?: () => void }) {
   return (
     <g transform={`translate(${x}, ${y}) scale(1.5)`} opacity={inSupply ? 1 : 0.35}>
       <rect x={1} y={9} width={34} height={16} rx={3} fill="#000" opacity={0.2} />
@@ -48,11 +64,12 @@ function ArmyToken({ x, y, color, inSupply }: { x: number; y: number; color: str
       <rect x={22} y={4} width={12} height={3.5} rx={1.5} fill={color} stroke="#111" strokeWidth={0.7} />
       <rect x={1} y={20} width={32} height={5} rx={2.5} fill="#1a1a1a" />
       {!inSupply && <text x={17} y={-2} textAnchor="middle" fontSize={11} fill="#ff4444" fontWeight="bold">✕</text>}
+      {onRemove && <RemoveButton onRemove={onRemove} />}
     </g>
   );
 }
 
-function NavyToken({ x, y, color, inSupply }: { x: number; y: number; color: string; inSupply: boolean }) {
+function NavyToken({ x, y, color, inSupply, onRemove }: { x: number; y: number; color: string; inSupply: boolean; onRemove?: () => void }) {
   return (
     <g transform={`translate(${x}, ${y}) scale(1.5)`} opacity={inSupply ? 1 : 0.35}>
       <path d="M1,19 L8,4 L28,4 L35,19 Z" fill="#000" opacity={0.2} />
@@ -61,6 +78,7 @@ function NavyToken({ x, y, color, inSupply }: { x: number; y: number; color: str
       <line x1={17} y1={-4} x2={17} y2={-12} stroke="#666" strokeWidth={1} />
       <rect x={17} y={-14} width={6} height={4} fill={color} stroke="#111" strokeWidth={0.5} />
       {!inSupply && <text x={17} y={-16} textAnchor="middle" fontSize={11} fill="#ff4444" fontWeight="bold">✕</text>}
+      {onRemove && <RemoveButton onRemove={onRemove} />}
     </g>
   );
 }
@@ -125,6 +143,7 @@ interface RenderPiece {
   textColor: string;
   inSupply: boolean;
   spaceId: string;
+  removable?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -135,6 +154,7 @@ export default function TotalWarGameBoard() {
   const state = useGameStore();
   const { pendingAction, axisVP, alliesVP, round } = state;
   const handleSpaceClick = useGameStore((s) => s.handleSpaceClick);
+  const removeOwnPiece = useGameStore((s) => s.removeOwnPiece);
 
   // Expansion state
   const airForces = useTotalWarStore((s) => s.airForces);
@@ -182,6 +202,7 @@ export default function TotalWarGameBoard() {
       textColor: COUNTRY_TEXT_ON_BG[p.country],
       inSupply: isInSupply(p, state),
       spaceId: p.spaceId,
+      removable: state.countries[p.country].isHuman,
     });
   }
 
@@ -322,10 +343,11 @@ export default function TotalWarGameBoard() {
                 const totalWidth = spacePieces.length * spacing;
                 const startX = space.x - totalWidth / 2 + i * spacing;
                 const py = space.y - TOKEN_H;
+                const onRemove = piece.removable ? () => removeOwnPiece(piece.id) : undefined;
                 if (piece.type === 'army') {
-                  return <ArmyToken key={piece.id} x={startX} y={py} color={piece.color} inSupply={piece.inSupply} />;
+                  return <ArmyToken key={piece.id} x={startX} y={py} color={piece.color} inSupply={piece.inSupply} onRemove={onRemove} />;
                 } else if (piece.type === 'navy') {
-                  return <NavyToken key={piece.id} x={startX} y={py} color={piece.color} inSupply={piece.inSupply} />;
+                  return <NavyToken key={piece.id} x={startX} y={py} color={piece.color} inSupply={piece.inSupply} onRemove={onRemove} />;
                 } else {
                   return <AFToken key={piece.id} x={startX} y={py} color={piece.color} textColor={piece.textColor} inSupply={piece.inSupply} />;
                 }

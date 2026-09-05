@@ -21,7 +21,23 @@ const TOTAL_W = MAP_WIDTH;
 const BOTTOM_H = 170;
 const TOTAL_H = MAP_HEIGHT + BOTTOM_H;
 
-function ArmyToken({ x, y, country, inSupply }: { x: number; y: number; country: Country; inSupply: boolean }) {
+function RemoveButton({ onRemove }: { onRemove: () => void }) {
+  return (
+    <g
+      transform="translate(35, -1)"
+      cursor="pointer"
+      onClick={(e) => {
+        e.stopPropagation();
+        if (window.confirm('Remove this piece from the board?')) onRemove();
+      }}
+    >
+      <circle r={6} fill="#B00020" stroke="#fff" strokeWidth={1} />
+      <text textAnchor="middle" dominantBaseline="central" fontSize={8} fill="#fff" fontWeight="bold">✕</text>
+    </g>
+  );
+}
+
+function ArmyToken({ x, y, country, inSupply, onRemove }: { x: number; y: number; country: Country; inSupply: boolean; onRemove?: () => void }) {
   const color = COUNTRY_COLORS[country];
   return (
     <g transform={`translate(${x}, ${y}) scale(1.5)`} opacity={inSupply ? 1 : 0.35}>
@@ -31,11 +47,12 @@ function ArmyToken({ x, y, country, inSupply }: { x: number; y: number; country:
       <rect x={22} y={4} width={12} height={3.5} rx={1.5} fill={color} stroke="#111" strokeWidth={0.7} />
       <rect x={1} y={20} width={32} height={5} rx={2.5} fill="#1a1a1a" />
       {!inSupply && <text x={17} y={-2} textAnchor="middle" fontSize={11} fill="#ff4444" fontWeight="bold">✕</text>}
+      {onRemove && <RemoveButton onRemove={onRemove} />}
     </g>
   );
 }
 
-function NavyToken({ x, y, country, inSupply }: { x: number; y: number; country: Country; inSupply: boolean }) {
+function NavyToken({ x, y, country, inSupply, onRemove }: { x: number; y: number; country: Country; inSupply: boolean; onRemove?: () => void }) {
   const color = COUNTRY_COLORS[country];
   return (
     <g transform={`translate(${x}, ${y}) scale(1.5)`} opacity={inSupply ? 1 : 0.35}>
@@ -45,6 +62,7 @@ function NavyToken({ x, y, country, inSupply }: { x: number; y: number; country:
       <line x1={17} y1={-4} x2={17} y2={-12} stroke="#666" strokeWidth={1} />
       <rect x={17} y={-14} width={6} height={4} fill={color} stroke="#111" strokeWidth={0.5} />
       {!inSupply && <text x={17} y={-16} textAnchor="middle" fontSize={11} fill="#ff4444" fontWeight="bold">✕</text>}
+      {onRemove && <RemoveButton onRemove={onRemove} />}
     </g>
   );
 }
@@ -74,6 +92,7 @@ export default function GameBoard() {
   const state = useGameStore();
   const { pendingAction, axisVP, alliesVP, round } = state;
   const handleSpaceClick = useGameStore((s) => s.handleSpaceClick);
+  const removeOwnPiece = useGameStore((s) => s.removeOwnPiece);
 
   const allPieces = getAllPieces(state);
   const validSpaces = new Set<string>();
@@ -142,10 +161,13 @@ export default function GameBoard() {
                 const totalWidth = spacePieces.length * spacing;
                 const startX = space.x - totalWidth / 2 + i * spacing;
                 const py = space.y - TOKEN_H;
+                const onRemove = state.countries[piece.country].isHuman
+                  ? () => removeOwnPiece(piece.id)
+                  : undefined;
                 return piece.type === 'army' ? (
-                  <ArmyToken key={piece.id} x={startX} y={py} country={piece.country} inSupply={supply} />
+                  <ArmyToken key={piece.id} x={startX} y={py} country={piece.country} inSupply={supply} onRemove={onRemove} />
                 ) : (
-                  <NavyToken key={piece.id} x={startX} y={py} country={piece.country} inSupply={supply} />
+                  <NavyToken key={piece.id} x={startX} y={py} country={piece.country} inSupply={supply} onRemove={onRemove} />
                 );
               })}
             </g>

@@ -188,6 +188,7 @@ interface GameStoreActions {
   selectMovePiece: (pieceId: string) => void;
   skipMovePieces: () => void;
   selectBattlePiece: (pieceId: string) => void;
+  removeOwnPiece: (pieceId: string) => void;
 }
 
 interface GameStoreState extends GameState {
@@ -293,13 +294,14 @@ function maybeSetOrAutoResolveEventSpace(
   set: (s: Partial<GameStoreState>) => void,
   get: () => GameStore
 ): boolean {
-  if (ns.countries[pa.playingCountry].isHuman) {
+  const humanCheckCountry = pa.humanCheckCountry ?? pa.playingCountry;
+  if (ns.countries[humanCheckCountry].isHuman) {
     set({ ...ns, pendingAction: pa });
     return true;
   }
 
-  // AI playing country — pick automatically.
-  const diff = ns.countries[pa.playingCountry].aiDifficulty;
+  // AI-controlled country — pick automatically.
+  const diff = ns.countries[pa.effectCountry].aiDifficulty;
   let pick: string | null = null;
 
   if (pa.effectAction === 'land_battle') {
@@ -311,6 +313,13 @@ function maybeSetOrAutoResolveEventSpace(
   if (!pick) {
     goToSupplyStep(ns, set, get);
     return true;
+  }
+
+  // Before an event battle effect removes a piece, give the defender a
+  // chance to play a protection Response card, exactly like a normal
+  // battle-card attack would.
+  if (pa.effectAction === 'land_battle' || pa.effectAction === 'sea_battle') {
+    if (tryOfferEventBattleProtection(pa.effectAction, pick, pa.playingCountry, pa.eventCardName, pa.remainingEffects, ns, set, get)) return true;
   }
 
   let aiNs = resolveEventEffectAtSpace(
@@ -442,6 +451,105 @@ function handleEventBattleTrigger(
   // No offensive response available — clean up actionContext
   set({ actionContext: undefined });
   return false;
+}
+
+// ---------------------------------------------------------------------------
+// tryOfferEventBattleProtection — before an event card's LAND_BATTLE/SEA_BATTLE
+// effect (e.g. Patton Advances' "battle in Germany or Italy") actually removes
+// a piece, give the defender the same chance to play a protection Response
+// card (Defensive Posture, Leningrad, RAF, etc.) that a normal battle-card
+// attack gets. Without this, event-driven battles behave like an unconditional
+// ELIMINATE_ARMY instead of a real battle. Returns true if a protection
+// opportunity was offered (control paused); false means proceed with the
+// battle as usual.
+// ---------------------------------------------------------------------------
+function tryOfferEventBattleProtection(
+  effectAction: 'land_battle' | 'sea_battle',
+  spaceId: string,
+  playingCountry: Country,
+  eventCardName: string,
+  remainingEffects: CardEffect[],
+  state: GameState,
+  set: (s: Partial<GameStoreState>) => void,
+  get: () => GameStore
+): boolean {
+  const pieceType = effectAction === 'sea_battle' ? 'navy' as const : 'army' as const;
+  const enemyTeam = getEnemyTeam(playingCountry);
+  const targetPiece = getAllPieces(state).find(
+    (p) => p.spaceId === spaceId && p.type === pieceType && getTeam(p.country) === enemyTeam
+  );
+  if (!targetPiece) return false;
+
+  const responses = findProtectionResponses(spaceId, targetPiece.country, state, targetPiece.type, targetPiece.id);
+  if (responses.length === 0) return false;
+
+  const resp = responses[0];
+  set({
+    ...state,
+    phase: GamePhase.AWAITING_RESPONSE,
+    actionContext: {
+      type: 'battle',
+      country: playingCountry,
+      spaceId,
+      battleType: effectAction === 'sea_battle' ? 'sea' : 'land',
+      declinedCardIds: [],
+      usedOffensiveIds: [],
+      usedStatusAbilityIds: [],
+      eventContinuation: { remainingEffects, eventCardName, playingCountry },
+    },
+    pendingAction: {
+      type: 'RESPONSE_OPPORTUNITY',
+      responseCountry: resp.country,
+      responseCardId: resp.card.id,
+      responseCardName: resp.card.name,
+      battleSpaceId: spaceId,
+      eliminatedPieceId: targetPiece.id,
+      eliminatedPieceCountry: targetPiece.country,
+      attackingCountry: playingCountry,
+    },
+  });
+  if (!state.countries[resp.country].isHuman) {
+    setTimeout(() => {
+      get().respondToOpportunity(
+        aiShouldActivateProtection(gs(get()), resp.card, spaceId, resp.country)
+      );
+    }, AI_DELAY);
+  }
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// continueEventOrGoToSupply — after a protection-response decision resolves
+// (accept or decline) for an event-driven battle, resume the card's remaining
+// effects via its saved eventContinuation instead of just ending the turn.
+// ---------------------------------------------------------------------------
+function continueEventOrGoToSupply(
+  ns: GameState,
+  ctx: ActionContext | undefined,
+  set: (s: Partial<GameStoreState>) => void,
+  get: () => GameStore
+): void {
+  if (ctx?.eventContinuation) {
+    set({ actionContext: undefined });
+    const { remainingEffects, eventCardName, playingCountry } = ctx.eventContinuation;
+    if (remainingEffects.length > 0) {
+      const result = processEventEffects(remainingEffects, eventCardName, playingCountry, ns);
+      if (result.pendingAction) {
+        if (result.pendingAction.type === 'SELECT_EVENT_SPACE') {
+          maybeSetOrAutoResolveEventSpace(result.pendingAction, result.newState, set, get);
+          return;
+        }
+        set({ ...result.newState, pendingAction: result.pendingAction });
+        return;
+      }
+      if (result.eventBuildInfo) {
+        if (handleEventBuildTrigger(result.eventBuildInfo, result.newState, set, get)) return;
+      }
+      ns = result.newState;
+    }
+  }
+  if (proceedAfterAction(ns, set, get)) return;
+  goToSupplyStep(ns, set, get);
 }
 
 // ---------------------------------------------------------------------------
@@ -1732,8 +1840,7 @@ function continueAfterElimination(
   // Action) are excluded.  Without this, Blitzkrieg could re-trigger Bias and vice-
   // versa, creating an infinite loop.
   if (tryOfferOffensiveResponse(battleType, battleSpaceId, ctx.country, ns, set, get, ctx.usedOffensiveIds)) return;
-  if (proceedAfterAction(ns, set, get)) return;
-  goToSupplyStep(ns, set, get);
+  continueEventOrGoToSupply(ns, ctx, set, get);
 }
 
 export const useGameStore = create<GameStore>((set, get) => ({
@@ -1921,6 +2028,13 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const logged = addLogEntry(playResult.newState, country, logMsg);
 
     if (playResult.pendingAction) {
+      // SELECT_EVENT_SPACE may belong to an ally (Arsenal of Democracy) or need
+      // a protection-response check before a battle resolves (Patton Advances)
+      // — route it through the human-vs-AI gate instead of always pausing here.
+      if (playResult.pendingAction.type === 'SELECT_EVENT_SPACE') {
+        maybeSetOrAutoResolveEventSpace(playResult.pendingAction, logged, set, get);
+        return;
+      }
       set({ ...logged, pendingAction: playResult.pendingAction, phase: GamePhase.PLAY_STEP, actionContext: { type: 'build', country, spaceId: '', declinedCardIds: [], usedOffensiveIds: [], usedStatusAbilityIds: [], playedCard: card } });
       if (playResult.pendingAction.type === 'SELECT_EW_TARGET') {
         const isMaltaAuto = playResult.pendingAction.ewCard.effects.some((e: { condition?: string }) => e.condition === 'malta_submarines');
@@ -2027,18 +2141,32 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
     if (pa.type === 'SELECT_EVENT_SPACE' && pa.validSpaces.includes(spaceId)) {
       // Safety guard: the space-picker should only be resolved by the human player
-      // who owns this action.  If playingCountry is an AI (e.g. a SELECT_EVENT_SPACE
-      // that leaked into the store before maybeSetOrAutoResolveEventSpace could clear
-      // it), ignore the human click and let the AI auto-resolve instead.
-      if (!s.countries[pa.playingCountry].isHuman) {
+      // who owns this action (normally the playing country, but an ally-benefit
+      // effect like Arsenal of Democracy gates on humanCheckCountry instead). If
+      // that country is an AI (e.g. a SELECT_EVENT_SPACE that leaked into the store
+      // before maybeSetOrAutoResolveEventSpace could clear it), ignore the human
+      // click and let the AI auto-resolve instead.
+      if (!s.countries[pa.humanCheckCountry ?? pa.playingCountry].isHuman) {
         maybeSetOrAutoResolveEventSpace(pa, s, set, get);
         return;
       }
+      const newRemaining = pa.remaining - 1;
+
+      // Before an event battle effect removes a piece, give the defender a
+      // chance to play a protection Response card (Defensive Posture, etc.),
+      // exactly like a normal battle-card attack would.
+      if (pa.effectAction === 'land_battle' || pa.effectAction === 'sea_battle') {
+        const remainingBattles0: CardEffect[] = newRemaining > 0
+          ? [{ type: pa.effectAction === 'sea_battle' ? 'SEA_BATTLE' : 'LAND_BATTLE', count: newRemaining } as CardEffect]
+          : [];
+        const allRemaining0 = [...remainingBattles0, ...pa.remainingEffects];
+        if (tryOfferEventBattleProtection(pa.effectAction, spaceId, pa.playingCountry, pa.eventCardName, allRemaining0, s, set, get)) return;
+      }
+
       let ns = resolveEventEffectAtSpace(pa.effectAction, spaceId, pa.effectCountry, pa.playingCountry, s, pa.eventCardName);
 
       const isBuildAction = pa.effectAction === 'build_army' || pa.effectAction === 'build_navy'
         || pa.effectAction === 'recruit_army' || pa.effectAction === 'recruit_navy';
-      const newRemaining = pa.remaining - 1;
       if (isBuildAction) {
         const trigType = (pa.effectAction === 'build_navy' || pa.effectAction === 'recruit_navy')
           ? 'build_navy' as const : 'build_army' as const;
@@ -2756,6 +2884,14 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
     const pendingAction = aiPlayResult.pendingAction;
     if (pendingAction) {
+      // Route through the human-vs-AI gate: the choice may belong to a human
+      // ally (Arsenal of Democracy) rather than the AI whose turn is running,
+      // or need a protection-response check before a battle resolves (Patton
+      // Advances) — both are handled inside maybeSetOrAutoResolveEventSpace.
+      if (pendingAction.type === 'SELECT_EVENT_SPACE') {
+        maybeSetOrAutoResolveEventSpace(pendingAction, ns, set, get);
+        return;
+      }
       if (pendingAction.type === 'SELECT_LEND_LEASE_TARGET') {
         const target = pendingAction.validTargets.reduce((best, c) => {
           const cs = ns.countries[c];
@@ -2990,93 +3126,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
             goToSupplyStep(ns, set, get);
             return;
           }
-          if (pendingAction.type === 'SELECT_EVENT_SPACE') {
-            ns = resolveEventEffectAtSpace(pendingAction.effectAction, res, pendingAction.effectCountry, pendingAction.playingCountry, ns, pendingAction.eventCardName);
-
-            const isAiBuild = pendingAction.effectAction === 'build_army' || pendingAction.effectAction === 'build_navy'
-              || pendingAction.effectAction === 'recruit_army' || pendingAction.effectAction === 'recruit_navy';
-            if (isAiBuild) {
-              const aiBuildTrigType = (pendingAction.effectAction === 'build_navy' || pendingAction.effectAction === 'recruit_navy')
-                ? 'build_navy' as const : 'build_army' as const;
-              const aiBuildInfo: EventBuildInfo = {
-                triggerType: aiBuildTrigType,
-                spaceId: res,
-                effectCountry: pendingAction.effectCountry,
-                remainingEffects: pendingAction.remainingEffects,
-                eventCardName: pendingAction.eventCardName,
-                playingCountry: pendingAction.playingCountry,
-              };
-              if (handleEventBuildTrigger(aiBuildInfo, ns, set, get)) return;
-            }
-
-            let rem = pendingAction.remaining - 1;
-            while (rem > 0 && pendingAction.skippable) {
-              const recheck = processEventEffects(
-                [{ type: pendingAction.effectAction === 'recruit_army' ? 'RECRUIT_ARMY' : pendingAction.effectAction === 'recruit_navy' ? 'RECRUIT_NAVY' : pendingAction.effectAction === 'eliminate_army' ? 'ELIMINATE_ARMY' : 'LAND_BATTLE', where: pendingAction.validSpaces, count: rem, condition: pendingAction.validSpaces.length > 5 ? 'adjacent_or_in' : undefined } as any],
-                pendingAction.eventCardName,
-                pendingAction.playingCountry,
-                ns
-              );
-              ns = recheck.newState;
-              if (recheck.pendingAction && recheck.pendingAction.type === 'SELECT_EVENT_SPACE' && recheck.pendingAction.validSpaces.length > 0) {
-                const pick = pickBestBuildLocation(recheck.pendingAction.validSpaces, pendingAction.effectCountry, ns, diff);
-                if (!pick) break;
-                ns = resolveEventEffectAtSpace(pendingAction.effectAction, pick, pendingAction.effectCountry, pendingAction.playingCountry, ns, pendingAction.eventCardName);
-                rem--;
-              } else {
-                if (recheck.eventBuildInfo) {
-                  if (handleEventBuildTrigger(recheck.eventBuildInfo, recheck.newState, set, get)) return;
-                  ns = recheck.newState;
-                }
-                break;
-              }
-            }
-
-            // Non-skippable mandatory multi-battle (e.g. Broad Front: 3 battles).
-            // Hard AI picks the best target for each remaining battle.
-            if (rem > 0 && !pendingAction.skippable && pendingAction.effectAction === 'land_battle') {
-              while (rem > 0) {
-                const recheck = processEventEffects(
-                  [{ type: 'LAND_BATTLE' as const, count: rem }],
-                  pendingAction.eventCardName,
-                  pendingAction.playingCountry,
-                  ns
-                );
-                ns = recheck.newState;
-                if (recheck.pendingAction?.type === 'SELECT_EVENT_SPACE' && recheck.pendingAction.validSpaces.length > 0) {
-                  const nextPick = pickBestBattleTarget(recheck.pendingAction.validSpaces, pendingAction.effectCountry, ns, diff);
-                  if (!nextPick) break;
-                  ns = resolveEventEffectAtSpace('land_battle', nextPick, pendingAction.effectCountry, pendingAction.playingCountry, ns, pendingAction.eventCardName);
-                  rem--;
-                } else {
-                  break;
-                }
-              }
-            }
-
-            if (pendingAction.remainingEffects.length > 0) {
-              const contResult = processEventEffects(pendingAction.remainingEffects, pendingAction.eventCardName, pendingAction.playingCountry, ns);
-              ns = contResult.newState;
-              if (contResult.eventBuildInfo) {
-                if (handleEventBuildTrigger(contResult.eventBuildInfo, ns, set, get)) return;
-              }
-              if (contResult.pendingAction && contResult.pendingAction.type === 'SELECT_EVENT_SPACE') {
-                const pick2 = pickBestBuildLocation(contResult.pendingAction.validSpaces, contResult.pendingAction.effectCountry, ns, diff);
-                if (pick2) {
-                  ns = resolveEventEffectAtSpace(contResult.pendingAction.effectAction, pick2, contResult.pendingAction.effectCountry, contResult.pendingAction.playingCountry, ns, contResult.pendingAction.eventCardName);
-                  if (contResult.pendingAction.remainingEffects.length > 0) {
-                    const contResult2 = processEventEffects(contResult.pendingAction.remainingEffects, contResult.pendingAction.eventCardName, contResult.pendingAction.playingCountry, ns);
-                    ns = contResult2.newState;
-                    if (contResult2.eventBuildInfo) {
-                      if (handleEventBuildTrigger(contResult2.eventBuildInfo, ns, set, get)) return;
-                    }
-                  }
-                }
-              }
-            }
-
-            if (proceedAfterAction(ns, set, get)) return;
-          } else if (pendingAction.type === 'SELECT_RECRUIT_LOCATION') {
+          if (pendingAction.type === 'SELECT_RECRUIT_LOCATION') {
             ns = resolveBuildAction(res, pendingAction.pieceType, pendingAction.recruitCountry, ns);
             ns = addLogEntry(ns, country, `${pendingAction.eventCardName}: recruited ${pendingAction.pieceType} in ${res.replace(/_/g, ' ')}`);
 
@@ -3322,8 +3372,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
         } else {
           const battleType = getSpace(pa.battleSpaceId)?.type === 'SEA' ? 'battle_sea' as const : 'battle_land' as const;
           if (tryOfferOffensiveResponse(battleType, pa.battleSpaceId, pa.attackingCountry, ns, set, get, ctx?.usedOffensiveIds)) return;
-          if (proceedAfterAction(ns, set, get)) return;
-          goToSupplyStep(ns, set, get);
+          continueEventOrGoToSupply(ns, ctx, set, get);
         }
       } else {
         if (isChain) {
@@ -4534,6 +4583,34 @@ export const useGameStore = create<GameStore>((set, get) => ({
     }
 
     proceedWithElimination(battleSpaceId, attackingCountry, targetPiece, ns, set, get);
+  },
+
+  // -------------------------------------------------------------------------
+  // removeOwnPiece — lets a human player voluntarily remove one of their own
+  // Army/Navy pieces from the board at any time (not gated by phase or whose
+  // turn it is). Purely a manual correction/self-service tool: no cascading
+  // rule effects (supply, VP, response opportunities) are triggered.
+  // -------------------------------------------------------------------------
+  removeOwnPiece: (pieceId: string) => {
+    const s = gs(get());
+    const piece = getAllPieces(s).find((p) => p.id === pieceId);
+    if (!piece) return;
+    if (!s.countries[piece.country].isHuman) return;
+
+    const cs = s.countries[piece.country];
+    let ns: GameState = {
+      ...s,
+      countries: {
+        ...s.countries,
+        [piece.country]: { ...cs, piecesOnBoard: cs.piecesOnBoard.filter((p) => p.id !== pieceId) },
+      },
+    };
+    ns = addLogEntry(
+      ns,
+      piece.country,
+      `Voluntarily removed ${piece.type} from ${getSpace(piece.spaceId)?.name ?? piece.spaceId}`
+    );
+    set(ns);
   },
 
   confirmRecruitCountry: (chosenCountry: Country) => {
