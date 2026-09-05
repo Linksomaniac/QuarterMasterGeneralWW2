@@ -166,6 +166,7 @@ export function initializeCountryState(
     piecesOnBoard: [startingArmy],
     isHuman,
     aiDifficulty: difficulty,
+    usedOffensiveCardsThisTurn: [],
   };
 }
 
@@ -789,6 +790,11 @@ function executeEventCard(card: Card, country: Country, state: GameState): GameS
       const expandedSpaces = effect.condition === 'adjacent_or_in'
         ? [...new Set(targetSpaces.flatMap((s) => [s, ...getAdjacentSpaces(s)]))]
         : targetSpaces;
+      // "Build" (unlike "Recruit") requires the target to be adjacent to one
+      // of the country's own pieces, or be the Home space — unless the card
+      // explicitly opts out via 'no_adjacency_required'.
+      const requiresAdjacency = effect.type === 'BUILD_ARMY' && effect.condition !== 'no_adjacency_required';
+      const homeSpace = HOME_SPACES[buildCountry];
       for (const sid of expandedSpaces) {
         if (built >= maxCount) break;
         const avail = getAvailablePieces(buildCountry, ns);
@@ -798,6 +804,10 @@ function executeEventCard(card: Card, country: Country, state: GameState): GameS
         const pieces = getAllPieces(ns);
         if (pieces.some((p) => p.spaceId === sid && p.country === buildCountry)) continue;
         if (pieces.some((p) => p.spaceId === sid && getTeam(p.country) !== getTeam(buildCountry))) continue;
+        if (requiresAdjacency && sid !== homeSpace) {
+          const ownPieceSpaceIds = new Set(ns.countries[buildCountry].piecesOnBoard.map((p) => p.spaceId));
+          if (!getAdjacentSpaces(sid).some((adj) => ownPieceSpaceIds.has(adj))) continue;
+        }
         const piece: Piece = { id: generatePieceId(), country: buildCountry, type: 'army', spaceId: sid };
         ns = { ...ns, countries: { ...ns.countries, [buildCountry]: { ...ns.countries[buildCountry], piecesOnBoard: [...ns.countries[buildCountry].piecesOnBoard, piece] } } };
         ns = addLogEntry(ns, country, `${card.name}: recruited army in ${sp.name}`);
@@ -813,12 +823,17 @@ function executeEventCard(card: Card, country: Country, state: GameState): GameS
       const expandedNavySpaces = effect.condition === 'adjacent_or_in'
         ? [...new Set(targetSpaces.flatMap((s) => [s, ...getAdjacentSpaces(s)]))]
         : targetSpaces;
+      const requiresNavyAdjacency = effect.type === 'BUILD_NAVY' && effect.condition !== 'no_adjacency_required';
       for (const sid of expandedNavySpaces) {
         const sp = getSpace(sid);
         if (!sp || sp.type !== SpaceType.SEA) continue;
         const pieces = getAllPieces(ns);
         if (pieces.some((p) => p.spaceId === sid && p.country === buildCountry)) continue;
         if (pieces.some((p) => p.spaceId === sid && getTeam(p.country) !== getTeam(buildCountry))) continue;
+        if (requiresNavyAdjacency) {
+          const ownPieceSpaceIds = new Set(ns.countries[buildCountry].piecesOnBoard.map((p) => p.spaceId));
+          if (!getAdjacentSpaces(sid).some((adj) => ownPieceSpaceIds.has(adj))) continue;
+        }
         const piece: Piece = { id: generatePieceId(), country: buildCountry, type: 'navy', spaceId: sid };
         ns = { ...ns, countries: { ...ns.countries, [buildCountry]: { ...ns.countries[buildCountry], piecesOnBoard: [...ns.countries[buildCountry].piecesOnBoard, piece] } } };
         ns = addLogEntry(ns, country, `${card.name}: built navy in ${sp.name}`);
@@ -1127,11 +1142,20 @@ function getEffectValidSpaces(
     const avail = getAvailablePieces(effectCountry, state);
     if (pieceType === 'army' && avail.armies <= 0) return null;
     if (pieceType === 'navy' && avail.navies <= 0) return null;
+    // Per the rules: "Build" (unlike "Recruit") requires the target space to
+    // be adjacent to one of the country's own pieces, or (armies only) be the
+    // Home space — cards that grant an exception use a dedicated condition
+    // (e.g. 'no_adjacency_required') instead of landing in this branch.
+    const homeSpace = HOME_SPACES[effectCountry];
+    const ownPieceSpaceIds = new Set(state.countries[effectCountry].piecesOnBoard.map((p) => p.spaceId));
     const valid = effect.where.filter((sid) => {
       const sp = getSpace(sid);
       if (!sp || sp.type !== spaceType) return false;
       if (allPcs.some((p) => p.spaceId === sid && p.country === effectCountry)) return false;
       if (allPcs.some((p) => p.spaceId === sid && getTeam(p.country) !== getTeam(effectCountry))) return false;
+      const isHomeArmyBuild = pieceType === 'army' && sid === homeSpace;
+      const adjacentToOwnPiece = getAdjacentSpaces(sid).some((adj) => ownPieceSpaceIds.has(adj));
+      if (!isHomeArmyBuild && !adjacentToOwnPiece) return false;
       return true;
     });
     const action = pieceType === 'army' ? 'build_army' as const : 'build_navy' as const;
@@ -2702,6 +2726,7 @@ export function findOffensiveResponses(
 
   const checkCard = (card: Card) => {
     if (excludeCardIds.includes(card.id)) return;
+    if (card.type === CardType.STATUS && cs.usedOffensiveCardsThisTurn.includes(card.id)) return;
     for (const effect of card.effects) {
       if (effect.type === 'ADDITIONAL_BATTLE') {
         if (effect.handCost) {
@@ -3475,6 +3500,12 @@ export function advanceTurn(state: GameState): GameState {
   if (TURN_ORDER[state.currentCountryIndex] === Country.JAPAN && ns.supplyMarkers.truk_supply) {
     ns = { ...ns, supplyMarkers: { ...ns.supplyMarkers, truk_supply: false } };
   }
+
+  const nextCountry = TURN_ORDER[nextIndex];
+  const nextCs = ns.countries[nextCountry];
+  if (nextCs.usedOffensiveCardsThisTurn.length > 0) {
+    ns = { ...ns, countries: { ...ns.countries, [nextCountry]: { ...nextCs, usedOffensiveCardsThisTurn: [] } } };
+  }
   return ns;
 }
 
@@ -4142,7 +4173,7 @@ export function resolveStatusFreeAction(
         if (!spaceMatchesWhere(sp.id, effect.where!)) return false;
         if (ns.countries[country].piecesOnBoard.some((p) => p.spaceId === sp.id)) return false;
         if (allPieces.some((p) => p.spaceId === sp.id && getTeam(p.country) === enemyTeam)) return false;
-        return true;
+        return ns.countries[country].piecesOnBoard.some((p) => isInSupply(p, ns) && getAdjacentSpaces(p.spaceId).includes(sp.id));
       });
       if (validSpaces.length === 0) return { newState: ns, message: `${card.name}: no valid location` };
       const best = validSpaces.reduce((a, b) => {

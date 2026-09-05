@@ -115,7 +115,16 @@ describe('Patton Advances battle respects defensive Response cards', () => {
       actionContext: undefined,
       countries: {
         ...cleared,
-        [Country.USA]: { ...cleared[Country.USA], hand: [pattonAdvances] },
+        [Country.USA]: {
+          ...cleared[Country.USA],
+          hand: [pattonAdvances],
+          // Patton Advances is a "Build" effect, so per the game's build rule
+          // it still needs a USA piece adjacent to Western Europe (here, a
+          // Navy in the Mediterranean) — it isn't a free "Recruit" placement.
+          piecesOnBoard: [
+            { id: 'test_usa_navy', country: Country.USA, type: 'navy', spaceId: 'mediterranean' },
+          ],
+        },
         [Country.ITALY]: {
           ...cleared[Country.ITALY],
           responseCards: [{ ...monteCassino, id: 'test_monte_cassino', country: Country.ITALY }],
