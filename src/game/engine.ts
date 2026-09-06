@@ -2216,7 +2216,10 @@ export function resolveBuildAction(
   spaceId: string,
   pieceType: 'army' | 'navy',
   country: Country,
-  state: GameState
+  state: GameState,
+  // Customize/attribute the log entry, or pass `null` to suppress it entirely
+  // when the caller will add its own (avoids double-logging a single build).
+  log?: { message?: string; country?: Country } | null
 ): GameState {
   // Hard cap: never exceed the piece limit regardless of caller.
   // Callers that properly do a redeploy (remove a piece first) will always
@@ -2246,7 +2249,10 @@ export function resolveBuildAction(
     },
   };
 
-  return addLogEntry(newState, country, `Built ${pieceType} in ${getSpace(spaceId)?.name ?? spaceId}`);
+  if (log === null) return newState;
+  const logCountry = log?.country ?? country;
+  const message = log?.message ?? `Built ${pieceType} in ${getSpace(spaceId)?.name ?? spaceId}`;
+  return addLogEntry(newState, logCountry, message);
 }
 
 // ---------------------------------------------------------------------------
