@@ -1200,8 +1200,7 @@ function processOffensiveResult(
       if (candidateSpaces.length === 0) break;
       const pick = pickBestBuildLocation(candidateSpaces, country, ns, diff);
       if (!pick) break;
-      ns = resolveBuildAction(pick, pieceType, country, ns);
-      ns = addLogEntry(ns, country, `${card.name}: built ${pieceType} in ${getSpace(pick)?.name ?? pick}`);
+      ns = resolveBuildAction(pick, pieceType, country, ns, { message: `${card.name}: built ${pieceType} in ${getSpace(pick)?.name ?? pick}` });
       chainTrigger = { type: pieceType === 'army' ? 'build_army' : 'build_navy', spaceId: pick };
     }
   } else if (result.validBattleTargets && result.validBattleTargets.length > 1) {
@@ -2073,8 +2072,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
     if (pa.type === 'SELECT_BUILD_LOCATION' && pa.validSpaces.includes(spaceId)) {
       const buildCtry = pa.buildCountry ?? country;
-      const built = resolveBuildAction(spaceId, pa.pieceType, buildCtry, s);
-      const logged = addLogEntry(built, buildCtry, `Built ${pa.pieceType} in ${spaceId.replace(/_/g, ' ')}`);
+      const logged = resolveBuildAction(spaceId, pa.pieceType, buildCtry, s);
 
       const builtPiece = logged.countries[buildCtry].piecesOnBoard.find(
         (p) => p.spaceId === spaceId && p.type === pa.pieceType
@@ -2108,8 +2106,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
         return;
       }
 
-      const built = resolveBuildAction(spaceId, pa.pieceType, pa.recruitCountry, s);
-      const logged = addLogEntry(built, country, `${pa.eventCardName}: built ${pa.pieceType} in ${spaceId.replace(/_/g, ' ')}`);
+      const logged = resolveBuildAction(spaceId, pa.pieceType, pa.recruitCountry, s, {
+        message: `${pa.eventCardName}: built ${pa.pieceType} in ${getSpace(spaceId)?.name ?? spaceId}`,
+        country,
+      });
 
       const newRemaining = pa.remaining - 1;
       if (newRemaining > 0) {
@@ -2762,7 +2762,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
               let ns3 = ns2;
               if (nextPA.type === 'SELECT_BUILD_LOCATION') {
                 ns3 = resolveBuildAction(res2, nextPA.pieceType, country, ns3);
-                ns3 = addLogEntry(ns3, country, `Built ${nextPA.pieceType} in ${res2.replace(/_/g, ' ')}`);
               } else if (nextPA.type === 'SELECT_BATTLE_TARGET') {
                 // Give the defender a chance to play a protection Response
                 // card (Leningrad, Moscow, Stalingrad, Monte Cassino, etc.)
@@ -2795,7 +2794,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
                   if (validSpaces.length > 0) {
                     const buildLoc = pickBestBuildLocation(validSpaces, rdCtry, ns, diff);
                     ns = resolveBuildAction(buildLoc, altPA.pieceType, rdCtry, ns);
-                    ns = addLogEntry(ns, rdCtry, `Built ${altPA.pieceType} in ${buildLoc.replace(/_/g, ' ')}`);
                   }
                 }
                 logged = ns;
@@ -2807,7 +2805,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
             let ns = logged;
             if (altPA.type === 'SELECT_BUILD_LOCATION') {
               ns = resolveBuildAction(res, altPA.pieceType, country, ns);
-              ns = addLogEntry(ns, country, `Built ${altPA.pieceType} in ${res.replace(/_/g, ' ')}`);
             } else if (altPA.type === 'SELECT_BATTLE_TARGET') {
               // Give the defender a chance to play a protection Response card
               // (Leningrad, Moscow, Stalingrad, Monte Cassino, etc.) before
@@ -2944,13 +2941,14 @@ export const useGameStore = create<GameStore>((set, get) => ({
               if (typeof subRes === 'string' && subRes) {
                 if (contResult.pendingAction.type === 'SELECT_BUILD_LOCATION') {
                   ns = resolveBuildAction(subRes, contResult.pendingAction.pieceType, country, ns);
-                  ns = addLogEntry(ns, country, `Built ${contResult.pendingAction.pieceType} in ${subRes.replace(/_/g, ' ')}`);
                 } else if (contResult.pendingAction.type === 'SELECT_BATTLE_TARGET') {
                   ns = resolveBattleAction(subRes, country, ns);
                   ns = addLogEntry(ns, country, `Battled in ${getSpace(subRes)?.name ?? subRes.replace(/_/g, ' ')}`);
                 } else if (contResult.pendingAction.type === 'SELECT_RECRUIT_LOCATION') {
-                  ns = resolveBuildAction(subRes, contResult.pendingAction.pieceType, contResult.pendingAction.recruitCountry, ns);
-                  ns = addLogEntry(ns, country, `Recruited ${contResult.pendingAction.pieceType} in ${subRes.replace(/_/g, ' ')}`);
+                  ns = resolveBuildAction(subRes, contResult.pendingAction.pieceType, contResult.pendingAction.recruitCountry, ns, {
+                    message: `Recruited ${contResult.pendingAction.pieceType} in ${getSpace(subRes)?.name ?? subRes}`,
+                    country,
+                  });
                 }
               }
               // Fall through to supply step below
@@ -2981,7 +2979,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
           if (typeof res2 === 'string' && res2) {
             if (nextPA.type === 'SELECT_BUILD_LOCATION') {
               ns = resolveBuildAction(res2, nextPA.pieceType, country, ns);
-              ns = addLogEntry(ns, country, `Built ${nextPA.pieceType} in ${res2.replace(/_/g, ' ')}`);
               set({
                 actionContext: {
                   type: 'build', country, spaceId: res2,
@@ -3110,7 +3107,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
                 if (frPA.type === 'SELECT_BUILD_LOCATION') {
                   const bc = frPA.buildCountry ?? country;
                   ns = resolveBuildAction(frRes, frPA.pieceType, bc, ns);
-                  ns = addLogEntry(ns, bc, `Built ${frPA.pieceType} in ${frRes.replace(/_/g, ' ')}`);
                   set({
                     actionContext: {
                       type: 'build', country: bc, spaceId: frRes,
@@ -3148,8 +3144,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
             return;
           }
           if (pendingAction.type === 'SELECT_RECRUIT_LOCATION') {
-            ns = resolveBuildAction(res, pendingAction.pieceType, pendingAction.recruitCountry, ns);
-            ns = addLogEntry(ns, country, `${pendingAction.eventCardName}: recruited ${pendingAction.pieceType} in ${res.replace(/_/g, ' ')}`);
+            ns = resolveBuildAction(res, pendingAction.pieceType, pendingAction.recruitCountry, ns, {
+              message: `${pendingAction.eventCardName}: recruited ${pendingAction.pieceType} in ${getSpace(res)?.name ?? res}`,
+              country,
+            });
 
             let rem = pendingAction.remaining - 1;
             while (rem > 0) {
@@ -3164,8 +3162,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
               if (newValid.length === 0) break;
               const nextPick = pickBestBuildLocation(newValid, pendingAction.recruitCountry, ns, diff);
               if (!nextPick) break;
-              ns = resolveBuildAction(nextPick, pendingAction.pieceType, pendingAction.recruitCountry, ns);
-              ns = addLogEntry(ns, country, `${pendingAction.eventCardName}: recruited ${pendingAction.pieceType} in ${nextPick.replace(/_/g, ' ')}`);
+              ns = resolveBuildAction(nextPick, pendingAction.pieceType, pendingAction.recruitCountry, ns, {
+                message: `${pendingAction.eventCardName}: recruited ${pendingAction.pieceType} in ${getSpace(nextPick)?.name ?? nextPick}`,
+                country,
+              });
               rem--;
             }
 
@@ -3234,14 +3234,15 @@ export const useGameStore = create<GameStore>((set, get) => ({
                     if (typeof subRes === 'string' && subRes) {
                       if (result.pendingAction.type === 'SELECT_BUILD_LOCATION') {
                         ns = resolveBuildAction(subRes, result.pendingAction.pieceType, rdCountry, ns);
-                        ns = addLogEntry(ns, rdCountry, `Built ${result.pendingAction.pieceType} in ${subRes.replace(/_/g, ' ')}`);
                       } else if (result.pendingAction.type === 'SELECT_BATTLE_TARGET') {
                         ns = resolveBattleAction(subRes, rdCountry, ns);
                         ns = addLogEntry(ns, rdCountry, `Battled in ${getSpace(subRes)?.name ?? subRes.replace(/_/g, ' ')}`);
                       } else if (result.pendingAction.type === 'SELECT_RECRUIT_LOCATION') {
                         const rCountry = result.pendingAction.recruitCountry ?? rdCountry;
-                        ns = resolveBuildAction(subRes, result.pendingAction.pieceType, rCountry, ns);
-                        ns = addLogEntry(ns, rdCountry, `Recruited ${result.pendingAction.pieceType} in ${subRes.replace(/_/g, ' ')}`);
+                        ns = resolveBuildAction(subRes, result.pendingAction.pieceType, rCountry, ns, {
+                          message: `Recruited ${result.pendingAction.pieceType} in ${getSpace(subRes)?.name ?? subRes}`,
+                          country: rdCountry,
+                        });
                       }
                     }
                     // Fall through to proceedAfterAction / supply step below
@@ -3258,7 +3259,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
                 if (validSpaces.length > 0) {
                   const buildLoc = pickBestBuildLocation(validSpaces, rdCountry, ns, diff);
                   ns = resolveBuildAction(buildLoc, pendingAction.pieceType, rdCountry, ns);
-                  ns = addLogEntry(ns, rdCountry, `Built ${pendingAction.pieceType} in ${buildLoc.replace(/_/g, ' ')}`);
                   const builtPc = ns.countries[rdCountry].piecesOnBoard.find((p) => p.spaceId === buildLoc && p.type === pendingAction.pieceType);
                   set({
                     actionContext: {
@@ -3277,7 +3277,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
           } else if (pendingAction.type === 'SELECT_BUILD_LOCATION') {
             const bCtry = pendingAction.buildCountry ?? country;
             ns = resolveBuildAction(res, pendingAction.pieceType, bCtry, ns);
-            ns = addLogEntry(ns, bCtry, `Built ${pendingAction.pieceType} in ${res.replace(/_/g, ' ')}`);
 
             const builtPiece = ns.countries[bCtry].piecesOnBoard.find(
               (p) => p.spaceId === res && p.type === pendingAction.pieceType
@@ -4090,7 +4089,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
             if (pendingAction.type === 'SELECT_BUILD_LOCATION') {
               const bc = pendingAction.buildCountry ?? country;
               ns = resolveBuildAction(res, pendingAction.pieceType, bc, ns);
-              ns = addLogEntry(ns, bc, `Built ${pendingAction.pieceType} in ${res.replace(/_/g, ' ')}`);
             } else if (pendingAction.type === 'SELECT_BATTLE_TARGET') {
               ns = resolveBattleAction(res, country, ns);
               ns = addLogEntry(ns, country, `Battled in ${res.replace(/_/g, ' ')}`);
