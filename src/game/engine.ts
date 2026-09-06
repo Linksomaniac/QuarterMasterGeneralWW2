@@ -2948,6 +2948,11 @@ export function findOffensiveResponses(
         if (effect.condition === 'after_italian_army_removed' || effect.condition === 'after_german_army_removed') continue;
         // Alternative play actions (e.g. American Volunteer Group) are not offensive responses
         if (effect.condition === 'discard_2_from_deck') continue;
+        // Fixed-location recruit effects (e.g. Volksturm's "recruit an Army in
+        // Germany") are their own dedicated mechanic, not the open "recruit an
+        // additional army adjacent to the space you just built in" response —
+        // do not let them be offered/auto-triggered as an offensive response.
+        if (effect.where) continue;
         if (triggerType !== 'build_army') continue;
         const avail = getAvailablePieces(country, state);
         if (avail.armies <= 0) continue;
