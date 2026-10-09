@@ -3187,16 +3187,28 @@ export function resolveOffensiveResponse(
       if (avail.armies <= 0) {
         return { newState: ns, message: `${card.name}: no armies available to build` };
       }
+      const maxCount = Math.min(effect.count ?? 1, avail.armies);
       const validBuildLocs = new Set(getValidBuildLocations(country, 'army', ns));
       const validAdj = adj.filter((a) => validBuildLocs.has(a));
       if (validAdj.length > 1) {
-        return { newState: ns, message: `${card.name}: choose where to build army`, validBuildSpaces: validAdj, buildPieceType: 'army', buildCount: 1 };
+        return { newState: ns, message: `${card.name}: choose where to build army`, validBuildSpaces: validAdj, buildPieceType: 'army', buildCount: maxCount };
       }
       if (validAdj.length === 1) {
-        const best = validAdj[0];
-        const piece: Piece = { id: `piece_r${++_resolveIdCounter}_${Date.now()}`, country, type: 'army', spaceId: best };
-        ns = { ...ns, countries: { ...ns.countries, [country]: { ...ns.countries[country], piecesOnBoard: [...ns.countries[country].piecesOnBoard, piece] } } };
-        return { newState: ns, message: `${card.name}: built army in ${getSpace(best)?.name ?? best}`, chainTrigger: { type: 'build_army', spaceId: best, builtPieceId: piece.id } };
+        let placed = 0;
+        let localNs = ns;
+        let lastId = '';
+        for (let i = 0; i < maxCount; i++) {
+          if (getAvailablePieces(country, localNs).armies <= 0) break;
+          const fl = new Set(getValidBuildLocations(country, 'army', localNs));
+          if (!fl.has(validAdj[0])) break;
+          const piece: Piece = { id: `piece_r${++_resolveIdCounter}_${Date.now()}_${i}`, country, type: 'army', spaceId: validAdj[0] };
+          localNs = { ...localNs, countries: { ...localNs.countries, [country]: { ...localNs.countries[country], piecesOnBoard: [...localNs.countries[country].piecesOnBoard, piece] } } };
+          lastId = piece.id;
+          placed++;
+        }
+        if (placed > 0) {
+          return { newState: localNs, message: `${card.name}: built ${placed} army(ies) in ${getSpace(validAdj[0])?.name ?? validAdj[0]}`, chainTrigger: { type: 'build_army', spaceId: validAdj[0], builtPieceId: lastId } };
+        }
       }
       return { newState: ns, message: `${card.name}: no valid location to build army` };
     }
