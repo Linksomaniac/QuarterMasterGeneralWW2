@@ -80,4 +80,96 @@ describe('Enigma Code Cracked fires only after the Status card has been used', (
     // The interrupted chain still completes: the battled enemy Army is removed.
     expect(s.countries[Country.SOVIET_UNION].piecesOnBoard.some((p) => p.id === 's1')).toBe(false);
   });
+
+  function setupBias(ukHuman: boolean, enemySpaces: string[]) {
+    const bias = find(Country.GERMANY, 'ger_bias_for_action');
+    const enigma = find(Country.UK, 'uk_enigma_code_cracked');
+    const build = find(Country.GERMANY, 'ger_build_army_1');
+    const st = useGameStore.getState();
+    const cleared = Object.fromEntries(
+      Object.values(Country).map((c) => [
+        c,
+        { ...st.countries[c], hand: [], statusCards: [], responseCards: [], piecesOnBoard: [] },
+      ])
+    ) as unknown as typeof st.countries;
+    useGameStore.setState({
+      phase: GamePhase.PLAY_STEP,
+      round: 3,
+      currentCountryIndex: 0,
+      pendingAction: null,
+      selectedCard: null,
+      actionContext: undefined,
+      countries: {
+        ...cleared,
+        [Country.GERMANY]: {
+          ...cleared[Country.GERMANY],
+          hand: [build],
+          statusCards: [bias],
+          piecesOnBoard: [{ id: 'g1', country: Country.GERMANY, type: 'army', spaceId: 'germany' }],
+        },
+        [Country.UK]: { ...cleared[Country.UK], isHuman: ukHuman, responseCards: [enigma] },
+        [Country.SOVIET_UNION]: {
+          ...cleared[Country.SOVIET_UNION],
+          piecesOnBoard: enemySpaces.map((sp, i) => ({
+            id: `s${i}`, country: Country.SOVIET_UNION, type: 'army' as const, spaceId: sp,
+          })),
+        },
+      },
+    });
+    useGameStore.getState().selectCard(build);
+    useGameStore.getState().playSelectedCard();
+    useGameStore.getState().handleSpaceClick('balkans');
+    vi.runAllTimers();
+  }
+
+  const germanHasBias = () =>
+    useGameStore.getState().countries[Country.GERMANY].statusCards.some((c) => c.id === 'ger_bias_for_action');
+
+  it('human Germany choosing among several targets: battle resolves, then Enigma is offered', () => {
+    setupBias(true, ['ukraine', 'eastern_europe']);
+    useGameStore.getState().respondToOpportunity(true, 'ger_bias_for_action');
+    vi.runAllTimers();
+
+    let s = useGameStore.getState();
+    expect(s.pendingAction?.type).toBe('SELECT_BATTLE_TARGET');
+    expect(germanHasBias()).toBe(true); // not discarded before it is played
+
+    useGameStore.getState().handleSpaceClick('ukraine');
+    vi.runAllTimers();
+    s = useGameStore.getState();
+    expect(s.log.some((l) => l.message.includes('Battled in Ukraine'))).toBe(true);
+    expect(s.pendingAction?.type).toBe('ENIGMA_OPPORTUNITY');
+    expect(germanHasBias()).toBe(true);
+
+    useGameStore.getState().respondToOpportunity(true);
+    vi.runAllTimers();
+    s = useGameStore.getState();
+    expect(germanHasBias()).toBe(false);
+    expect(s.countries[Country.SOVIET_UNION].piecesOnBoard.some((p) => p.spaceId === 'ukraine')).toBe(false);
+  });
+
+  it('human UK declining Enigma keeps the Status card and finishes the chain', () => {
+    setupBias(true, ['ukraine']);
+    useGameStore.getState().respondToOpportunity(true, 'ger_bias_for_action');
+    vi.runAllTimers();
+    expect(useGameStore.getState().pendingAction?.type).toBe('ENIGMA_OPPORTUNITY');
+
+    useGameStore.getState().respondToOpportunity(false);
+    vi.runAllTimers();
+    const s = useGameStore.getState();
+    expect(germanHasBias()).toBe(true);
+    expect(s.pendingAction?.type).not.toBe('ENIGMA_OPPORTUNITY');
+    expect(s.countries[Country.SOVIET_UNION].piecesOnBoard.some((p) => p.spaceId === 'ukraine')).toBe(false);
+  });
+
+  it('AI UK: Enigma auto-discards only after the battle has been logged', () => {
+    setupBias(false, ['ukraine']);
+    useGameStore.getState().respondToOpportunity(true, 'ger_bias_for_action');
+    vi.runAllTimers();
+    const msgs = useGameStore.getState().log.map((l) => l.message);
+    const battleIdx = msgs.findIndex((m) => m.includes('Bias for Action: battling'));
+    const enigmaIdx = msgs.findIndex((m) => m.includes('Enigma Code Cracked: discarded'));
+    expect(battleIdx).toBeGreaterThan(-1);
+    if (enigmaIdx > -1) expect(enigmaIdx).toBeGreaterThan(battleIdx);
+  });
 });

@@ -893,11 +893,32 @@ function resumeChain(
 // proceedAfterAction — check for remaining reactive triggers before advancing
 // to supply step. Returns true if a reaction was offered (game paused).
 // ---------------------------------------------------------------------------
+// Runs a deferred Enigma Code Cracked check (see processOffensiveResult). Safety
+// net for flows that end without passing through finishOffensiveChain (e.g. a
+// human choosing a battle target). Returns true if the game was paused for UK.
+function runDeferredEnigma(
+  state: GameState,
+  set: (s: Partial<GameStoreState>) => void
+): { paused: boolean; state: GameState } {
+  if (!deferredEnigma) return { paused: false, state };
+  const { country: usedBy, cardId, cardName } = deferredEnigma;
+  deferredEnigma = null;
+  const res = checkAndResolveEnigma(usedBy, cardId, cardName, state);
+  if (res.enigmaPending) {
+    set({ ...res.newState, pendingAction: res.enigmaPending, phase: GamePhase.AWAITING_RESPONSE });
+    return { paused: true, state: res.newState };
+  }
+  return { paused: false, state: res.newState };
+}
+
 function proceedAfterAction(
   state: GameState,
   set: (s: Partial<GameStoreState>) => void,
   get: () => GameStore
 ): boolean {
+  const enigmaRun = runDeferredEnigma(state, set);
+  if (enigmaRun.paused) return true;
+  state = enigmaRun.state;
   const ctx = get().actionContext;
   if (!ctx) { console.log('[AI] proceedAfterAction: no ctx, returning false'); return false; }
   console.log(`[AI] proceedAfterAction: ctx.type=${ctx.type}, ctx.spaceId=${ctx.spaceId}`);
@@ -1505,6 +1526,9 @@ function goToSupplyStep(
   set: (s: Partial<GameStoreState>) => void,
   get: () => GameStore
 ) {
+  const enigmaRun = runDeferredEnigma(state, set);
+  if (enigmaRun.paused) return;
+  state = enigmaRun.state;
   const ctx = get().actionContext;
   const country = getCurrentCountry(state);
   console.log(`[AI] goToSupplyStep for ${COUNTRY_NAMES[country]}, playedCard=${ctx?.playedCard?.name ?? 'none'}`);
