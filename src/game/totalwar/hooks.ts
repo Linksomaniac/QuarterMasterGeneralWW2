@@ -552,70 +552,54 @@ export function useTotalWarController() {
           const defenseAF = getAirDefenseAF(defenderCountry, battleSpaceId, tw);
 
           if (defenseAF) {
-            const isDefenderHuman = cs.isHuman;
-
-            if (!isDefenderHuman) {
-              // AI always uses air defense — sacrifice the AF to save the piece
-              airCombatProcessingRef.current = true;
-              try {
-                // Restore the eliminated piece
-                useGameStore.setState((s) => ({
-                  countries: {
-                    ...s.countries,
-                    [defenderCountry]: {
-                      ...s.countries[defenderCountry],
-                      piecesOnBoard: [
-                        ...s.countries[defenderCountry].piecesOnBoard,
-                        removed,
-                      ],
+            // Air Attack comes first: an attacker with a supplied AF adjacent to
+            // the battle space may destroy the defending AF before it can save
+            // the piece.
+            const attackerAF = getAirAttackAF(attackerCountry, battleSpaceId, state, tw);
+            if (attackerAF) {
+              if (!state.countries[attackerCountry]?.isHuman) {
+                airCombatProcessingRef.current = true;
+                try {
+                  useTotalWarStore.getState().removeAirForce(defenseAF.id);
+                  twLog(
+                    attackerCountry,
+                    `Air Attack: Eliminated enemy Air Force in ${battleSpaceId.replace(/_/g, ' ')} (no Air Defense)`
+                  );
+                } finally {
+                  airCombatProcessingRef.current = false;
+                }
+              } else {
+                airCombatProcessingRef.current = true;
+                try {
+                  useTotalWarStore.getState().setPendingTotalWarAction({
+                    type: 'AIR_ATTACK_OPPORTUNITY',
+                    attackerCountry,
+                    defenderCountry: defenseAF.country,
+                    battleSpaceId,
+                    defenderAFSpaceId: battleSpaceId,
+                    attackerAFId: attackerAF.id,
+                    pendingDefense: {
+                      defenderCountry,
+                      removedPiece: removed,
+                      airForceId: defenseAF.id,
                     },
-                  },
-                }));
-
-                // Remove the AF (sacrifice it)
-                useTotalWarStore.getState().removeAirForce(defenseAF.id);
-
-                twLog(
-                  defenderCountry,
-                  `Air Defense: Sacrificed Air Force to save ${removed.type} in ${battleSpaceId.replace(/_/g, ' ')}`
-                );
-              } finally {
-                airCombatProcessingRef.current = false;
+                  });
+                } finally {
+                  airCombatProcessingRef.current = false;
+                }
               }
-
-              // After air defense, check for air attack opportunity for the attacker.
-              // The defender's piece was saved, but is there still an enemy AF in the
-              // battle space? (The AF we just removed was the defender's, so check for
-              // another defender AF.)
-              checkAndResolveAirAttack(
-                attackerCountry,
-                defenderCountry,
-                battleSpaceId,
-                state,
-                airCombatProcessingRef
-              );
-
-              // Skip further processing for this piece (it was saved)
-              continue;
-            } else {
-              // Human defender: show AIR_DEFENSE_OPPORTUNITY prompt
-              // Save context needed to resume after the human responds
-              airCombatProcessingRef.current = true;
-              try {
-                useTotalWarStore.getState().setPendingTotalWarAction({
-                  type: 'AIR_DEFENSE_OPPORTUNITY',
-                  defenderCountry,
-                  battleSpaceId,
-                  threatenedPieceId: removed.id,
-                  threatenedPieceType: removed.type,
-                  airForceId: defenseAF.id,
-                });
-              } finally {
-                airCombatProcessingRef.current = false;
-              }
-              // Don't process air attack yet — wait for human to respond to defense first
               continue;
             }
+
+            offerAirDefense(
+              defenderCountry,
+              removed,
+              defenseAF.id,
+              attackerCountry,
+              state,
+              airCombatProcessingRef
+            );
+            continue;
           }
 
           // --- AIR ATTACK (no air defense available) ---
@@ -1016,6 +1000,57 @@ function resolveAiReallocate(country: Country) {
   });
 
   twLog(country, `Reallocate Resources: Discarded ${cost} cards, took ${targetCard.name} from deck (${reason})`);
+}
+
+/**
+ * Resolve Air Defense for an eliminated piece: AI sacrifices the AF to save it,
+ * a human defender is prompted.
+ */
+export function offerAirDefense(
+  defenderCountry: Country,
+  removed: any,
+  airForceId: string,
+  attackerCountry: Country,
+  baseState: any,
+  processingRef: { current: boolean }
+) {
+  const battleSpaceId = removed.spaceId;
+  const isDefenderHuman = useGameStore.getState().countries[defenderCountry]?.isHuman;
+
+  processingRef.current = true;
+  try {
+    if (!isDefenderHuman) {
+      useGameStore.setState((s) => ({
+        countries: {
+          ...s.countries,
+          [defenderCountry]: {
+            ...s.countries[defenderCountry],
+            piecesOnBoard: [...s.countries[defenderCountry].piecesOnBoard, removed],
+          },
+        },
+      }));
+      useTotalWarStore.getState().removeAirForce(airForceId);
+      twLog(
+        defenderCountry,
+        `Air Defense: Sacrificed Air Force to save ${removed.type} in ${battleSpaceId.replace(/_/g, ' ')}`
+      );
+    } else {
+      useTotalWarStore.getState().setPendingTotalWarAction({
+        type: 'AIR_DEFENSE_OPPORTUNITY',
+        defenderCountry,
+        battleSpaceId,
+        threatenedPieceId: removed.id,
+        threatenedPieceType: removed.type,
+        airForceId,
+      });
+    }
+  } finally {
+    processingRef.current = false;
+  }
+
+  if (!isDefenderHuman) {
+    checkAndResolveAirAttack(attackerCountry, defenderCountry, battleSpaceId, baseState, processingRef);
+  }
 }
 
 function checkAndResolveAirAttack(

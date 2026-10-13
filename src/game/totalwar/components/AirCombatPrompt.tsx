@@ -1,6 +1,7 @@
 import React from 'react';
 import { useTotalWarStore } from '../store';
 import { useGameStore } from '../../store';
+import { offerAirDefense } from '../hooks';
 import { COUNTRY_NAMES, COUNTRY_COLORS } from '../../types';
 
 /**
@@ -137,7 +138,7 @@ function AirAttackPrompt() {
   const pendingAction = useTotalWarStore((s) => s.pendingTotalWarAction);
   if (!pendingAction || pendingAction.type !== 'AIR_ATTACK_OPPORTUNITY') return null;
 
-  const { attackerCountry, defenderCountry, battleSpaceId, defenderAFSpaceId } = pendingAction;
+  const { attackerCountry, defenderCountry, battleSpaceId, defenderAFSpaceId, pendingDefense } = pendingAction;
   const color = COUNTRY_COLORS[attackerCountry];
   const spaceName = battleSpaceId.replace(/_/g, ' ');
 
@@ -171,6 +172,17 @@ function AirAttackPrompt() {
 
   const handleDecline = () => {
     useTotalWarStore.getState().setPendingTotalWarAction(null);
+    if (pendingDefense) {
+      // Air Attack declined: the defender may still use Air Defense
+      offerAirDefense(
+        pendingDefense.defenderCountry,
+        pendingDefense.removedPiece,
+        pendingDefense.airForceId,
+        attackerCountry,
+        useGameStore.getState(),
+        { current: false }
+      );
+    }
   };
 
   return (
@@ -192,7 +204,9 @@ function AirAttackPrompt() {
             Air Force in that space.
           </div>
           <div className="text-sm text-red-300 mt-2">
-            This is a free bonus elimination -- your Air Force stays on the board.
+            {pendingDefense
+              ? 'Destroying their Air Force first means it cannot be sacrificed to save the eliminated piece. Your Air Force stays on the board.'
+              : 'This is a free bonus elimination -- your Air Force stays on the board.'}
           </div>
         </div>
 

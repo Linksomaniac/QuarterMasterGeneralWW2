@@ -280,6 +280,12 @@ export type TotalWarPendingAction =
       battleSpaceId: string;
       defenderAFSpaceId: string;
       attackerAFId: string;
+      /** Set when Air Attack is offered before Air Defense; resumed on decline */
+      pendingDefense?: {
+        defenderCountry: Country;
+        removedPiece: { id: string; type: 'army' | 'navy'; spaceId: string; country: Country };
+        airForceId: string;
+      };
     }
   | {
       type: 'BOLSTER_OPPORTUNITY';
