@@ -1064,6 +1064,8 @@ function autoDiscardFromHand(
 // (builds, battles, chain continuation). Returns true if it set state and
 // paused the flow (e.g. for human choices).
 // ---------------------------------------------------------------------------
+let deferredEnigma: { country: Country; cardId: string; cardName: string } | null = null;
+
 function processOffensiveResult(
   result: ReturnType<typeof resolveOffensiveResponse>,
   card: Card,
@@ -1093,14 +1095,9 @@ function processOffensiveResult(
     }
   }
 
-  if (isStatusCard) {
-    const enigmaResult = checkAndResolveEnigma(country, card.id, card.name, ns);
-    ns = enigmaResult.newState;
-    if (enigmaResult.enigmaPending) {
-      set({ ...ns, pendingAction: enigmaResult.enigmaPending });
-      return;
-    }
-  }
+  // Enigma Code Cracked fires "just after" the Status card is used, so defer
+  // the check until the card's effect has fully resolved (finishOffensiveChain).
+  deferredEnigma = isStatusCard ? { country, cardId: card.id, cardName: card.name } : null;
 
   // Handle BUILD_AFTER_BATTLE needing a redeploy to a fixed target space (0 reserves)
   if (result.needsRedeploy && result.targetBuildSpaceId) {
@@ -1251,6 +1248,33 @@ function finishOffensiveChain(
 ): void {
   console.log(`[AI] finishOffensiveChain for ${COUNTRY_NAMES[country]}: chainTrigger=${chainTrigger?.type}, pendingElim=${!!pendingElim}`);
   const ctx = get().actionContext;
+
+  // Enigma Code Cracked: now that the Status card's effect has resolved.
+  if (deferredEnigma) {
+    const { country: usedBy, cardId, cardName } = deferredEnigma;
+    deferredEnigma = null;
+    const enigmaResult = checkAndResolveEnigma(usedBy, cardId, cardName, ns);
+    ns = enigmaResult.newState;
+    if (enigmaResult.enigmaPending) {
+      if (ctx) {
+        const origType = ctx.type === 'battle'
+          ? (ctx.battleType === 'sea' ? 'battle_sea' as const : 'battle_land' as const)
+          : (ctx.builtPieceType === 'army' ? 'build_army' as const : 'build_navy' as const);
+        set({
+          actionContext: {
+            ...ctx,
+            usedOffensiveIds: usedIds,
+            chainTrigger,
+            chainUsedIds: usedIds,
+            chainPendingElimination: pendingElim,
+            pendingOriginalTrigger: { type: origType, spaceId: ctx.spaceId },
+          },
+        });
+      }
+      set({ ...ns, pendingAction: enigmaResult.enigmaPending, phase: GamePhase.AWAITING_RESPONSE });
+      return;
+    }
+  }
   if (ctx) {
     set({ actionContext: { ...ctx, usedOffensiveIds: usedIds } });
     const triggerType = ctx.type === 'battle'
@@ -3940,6 +3964,16 @@ export const useGameStore = create<GameStore>((set, get) => ({
         ns = addLogEntry(ns, Country.UK, `Declined to use ${pa.enigmaCardName}`);
       }
       set({ ...ns, pendingAction: null });
+      const chainCtx = get().actionContext;
+      if (chainCtx && (chainCtx.chainTrigger || chainCtx.pendingOriginalTrigger || chainCtx.chainPendingElimination)) {
+        set({ phase: GamePhase.PLAY_STEP });
+        if (chainCtx.chainPendingElimination && chainCtx.chainTrigger) {
+          handleChainElimination(chainCtx.chainPendingElimination, chainCtx.country, ns, set, get);
+        } else {
+          resumeChain(ns, set, get);
+        }
+        return;
+      }
       if (proceedAfterAction(ns, set, get)) return;
       goToSupplyStep(ns, set, get);
       return;
