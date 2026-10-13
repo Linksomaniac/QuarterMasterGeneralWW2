@@ -2986,7 +2986,13 @@ export function findOffensiveResponses(
         const hasEnemyNavySCS = allPieces.some(
           (p) => p.spaceId === 'south_china_sea' && getTeam(p.country) === enemyTeam && p.type === 'navy'
         );
-        if (!hasEnemyNavySCS) continue;
+        // The sea battle is optional in effect: the card is still useful if it can
+        // recruit an Army in Southeast Asia even with no enemy Navy to battle.
+        const canRecruitSEA =
+          getAvailablePieces(country, state).armies > 0 &&
+          !allPieces.some((p) => p.spaceId === 'southeast_asia' && getTeam(p.country) === enemyTeam) &&
+          !cs.piecesOnBoard.some((p) => p.spaceId === 'southeast_asia' && p.type === 'army');
+        if (!hasEnemyNavySCS && !canRecruitSEA) continue;
         results.push({ card, description: `${card.name}: Battle South China Sea; recruit Army in Southeast Asia` });
         break;
       }
