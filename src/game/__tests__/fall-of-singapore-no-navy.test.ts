@@ -67,3 +67,11 @@ describe('Fall of Singapore', () => {
     expect(r.map((x) => x.card.id)).not.toContain('jpn_fall_of_singapore');
   });
 });
+
+describe('Fall of Singapore land battle targets', () => {
+  it('makes Southeast Asia a valid land battle target from China', async () => {
+    const { state } = setup(false);
+    const { getValidBattleTargets } = await import('../engine');
+    expect(getValidBattleTargets(Country.JAPAN, 'land', state)).toContain('southeast_asia');
+  });
+});
