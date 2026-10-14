@@ -25,6 +25,7 @@ import {
 } from './engine';
 import { getSpace, HOME_SPACES, SUPPLY_SPACE_IDS, getAdjacentSpaces } from './mapData';
 import { useTotalWarStore } from './totalwar/store';
+import { choosePlay } from './aiPolicy';
 import type { MinorPowerPiece } from './totalwar/types';
 
 // ---------------------------------------------------------------------------
@@ -1772,13 +1773,29 @@ export function aiChooseCard(
     return playable[Math.floor(Math.random() * playable.length)].index;
   }
 
+  if (difficulty === 'hard') {
+    // Heuristic scores + a correction learned from self-play (see aiPolicy.ts).
+    const team = getTeam(country);
+    const cs = state.countries[country];
+    const avail = getAvailablePieces(country, state);
+    return choosePlay(hand, hand.map((c) => scoreCard(c, state, difficulty)), {
+      country,
+      round: state.round,
+      vpGap: team === Team.AXIS ? state.axisVP - state.alliesVP : state.alliesVP - state.axisVP,
+      nPieces: cs.piecesOnBoard.length,
+      availArmies: avail.armies,
+      availNavies: avail.navies,
+      deckSize: cs.deck.length,
+    });
+  }
+
   let bestIndex = 0;
   let bestScore = -Infinity;
 
   for (let i = 0; i < hand.length; i++) {
     const score =
       scoreCard(hand[i], state, difficulty) +
-      (difficulty === 'hard' ? Math.random() * 2 : Math.random() * 5);
+      Math.random() * 5;
     if (score > bestScore) {
       bestScore = score;
       bestIndex = i;

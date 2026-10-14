@@ -25,6 +25,7 @@ import {
   CardEffectType,
   CardEffect,
 } from './types';
+import { chooseSetupDiscards } from './aiPolicy';
 import {
   getSpace,
   getAdjacentSpaces,
@@ -142,8 +143,9 @@ export function initializeCountryState(
     hand = drawn;
     discard = [];
   } else {
-    const sortedForDiscard = [...drawn].sort((a, b) => getDiscardPriority(a, drawn) - getDiscardPriority(b, drawn));
-    const toDiscard = sortedForDiscard.slice(0, INITIAL_DISCARD);
+    const toDiscard = difficulty === 'hard' && !isHuman
+      ? chooseSetupDiscards(country, drawn, INITIAL_DISCARD).map((i) => drawn[i])
+      : [...drawn].sort((a, b) => getDiscardPriority(a, drawn) - getDiscardPriority(b, drawn)).slice(0, INITIAL_DISCARD);
     hand = drawn.filter((c) => !toDiscard.includes(c));
     discard = [...toDiscard];
   }

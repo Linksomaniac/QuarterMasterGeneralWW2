@@ -81,3 +81,16 @@ The compiled output will be in the `dist/` folder and can be served by any stati
 **Quartermaster General WW2: 2nd Edition** is a fast-paced, card-driven wargame for 2-6 players set in World War II. Each power has a unique deck of cards to build armies and navies, attack enemies, and maintain supply lines. Supply is everything — cut your enemy's supply and their forces surrender.
 
 [View on BoardGameGeek](https://boardgamegeek.com/boardgame/331979/quartermaster-general-ww2-2nd-edition)
+
+---
+
+## Training the Hard AI
+
+Hard AI card choice (which card to play, and which 3 of the opening 10 to discard) is a heuristic score plus a learned correction (`src/game/aiPolicy.ts`, weights in `src/game/aiWeights.json`). The weights come from self-play REINFORCE training:
+
+```bash
+node training/train.mjs --iters 250 --games 100 --workers 8   # train; checkpoints in training/out/
+node training/train.mjs --eval-only --init src/game/aiWeights.json --eval-games 4000
+```
+
+Evaluation plays the learned policy against the plain heuristic AI with sides alternated.
