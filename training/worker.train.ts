@@ -15,7 +15,8 @@ it('selfplay worker', async () => {
   console.log = () => {};
 
   if (job.mode === 'train') {
-    // Per game: {kind, team, R, G} for each learning team.
+    // Per game: {kind, team, R, G}. Gradients are combined locally (with a
+    // local per-(kind,team) reward baseline) so workers return one small dict.
     const records: { kind: string; team: string; R: number; G: Record<string, number> }[] = [];
     for (let i = 0; i < job.games; i++) {
       const selfPlay = i % 2 === 0;
@@ -31,10 +32,34 @@ it('selfplay worker', async () => {
       if (!res) continue;
       const teams = selfPlay ? [Team.AXIS, Team.ALLIES] : [learnerSide];
       for (const t of teams) {
-        records.push({ kind: selfPlay ? 'self' : 'base', team: t, R: reward(res, t), G: teamGrad(res.trace, t) });
+        records.push({ kind: selfPlay ? 'self' : 'base', team: t, R: reward(res, t), G: teamGrad(res.trace, t, theta) });
       }
     }
-    writeFileSync(job.out, JSON.stringify(records));
+    const sums: Record<string, { s: number; n: number }> = {};
+    for (const r of records) { const k = r.kind + r.team; (sums[k] ??= { s: 0, n: 0 }); sums[k].s += r.R; sums[k].n++; }
+    const grad: Record<string, number> = {};
+    for (const r of records) {
+      const b = sums[r.kind + r.team].s / sums[r.kind + r.team].n;
+      const adv = r.R - b;
+      for (const k in r.G) grad[k] = (grad[k] ?? 0) + adv * r.G[k];
+    }
+    const means = Object.fromEntries(Object.entries(sums).map(([k, x]) => [k, x.s / x.n]));
+    const out = { n: records.length, grad, means };
+    writeFileSync(job.out, JSON.stringify(out));
+    console.log = realLog;
+    return;
+  } else if (job.mode === 'sides') {
+    // All six powers use `theta`: who wins, and how do games end?
+    let n = 0, axis = 0, allies = 0, sudden = 0, axisVP = 0, alliesVP = 0;
+    for (let i = 0; i < job.games; i++) {
+      const res = await playGame({ axis: theta, allies: theta, learn: [], tau: 1 });
+      if (!res) continue;
+      n++;
+      if (res.winner === Team.AXIS) axis++; else if (res.winner === Team.ALLIES) allies++;
+      if (Math.abs(res.axisVP - res.alliesVP) >= 30) sudden++;
+      axisVP += res.axisVP; alliesVP += res.alliesVP;
+    }
+    writeFileSync(job.out, JSON.stringify({ n, axis, allies, sudden, axisVP, alliesVP }));
   } else {
     // eval: deployment behaviour (no sampling). theta vs baseline, alternating sides.
     let wins = 0, n = 0, marginSum = 0;

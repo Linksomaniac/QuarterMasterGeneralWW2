@@ -94,3 +94,5 @@ node training/train.mjs --eval-only --init src/game/aiWeights.json --eval-games 
 ```
 
 Evaluation plays the learned policy against the plain heuristic AI with sides alternated.
+
+Other training tools: `training/init-net.mjs` adds a hidden-layer network to a weights file (the policy supports one network per decision kind on top of the linear model), and `training/sides.mjs` reports the Axis vs Allies win split when all six powers use a given weights file.

@@ -17,6 +17,7 @@ const ITERS = +arg('iters', 300), GAMES = +arg('games', 100), WORKERS = +arg('wo
 const LR = +arg('lr', 0.08), TAU = +arg('tau', 3), L2 = +arg('l2', 0.002);
 const EVAL_EVERY = +arg('eval-every', 25), EVAL_GAMES = +arg('eval-games', 1000);
 const OUT = arg('out', 'training/out');
+const NETLR = +arg('net-lr-mult', 0.25);
 const PROMOTE = +arg('promote', 0.55);
 // Moving opponent ("champion") for the non-self-play half of training games, plus a fixed reference.
 let champion = arg('baseline') ? JSON.parse(readFileSync(arg('baseline'), 'utf8')) : {};
@@ -62,19 +63,18 @@ if (process.argv.includes('--eval-only')) {
 console.log('champion mirror check:', fmt(await evaluate(champion, EVAL_GAMES)));
 
 for (let it = 1; it <= ITERS; it++) {
-  const rs = (await Promise.all(Array.from({ length: WORKERS }, (_, i) =>
-    runWorker({ mode: 'train', theta, baseline: champion, games: GAMES, tau: TAU }, `train${i}`)))).flat();
-
-  // Baselines: mean reward per (kind, team).
-  const sums = {};
-  for (const r of rs) { const k = r.kind + r.team; (sums[k] ??= { s: 0, n: 0 }); sums[k].s += r.R; sums[k].n++; }
+  const rs = await Promise.all(Array.from({ length: WORKERS }, (_, i) =>
+    runWorker({ mode: 'train', theta, baseline: champion, games: GAMES, tau: TAU }, `train${i}`)));
+  // Workers return advantage-weighted gradient sums (local reward baselines).
   const grad = {};
+  let N = 0;
+  const meanRs = {};
   for (const r of rs) {
-    const b = sums[r.kind + r.team].s / sums[r.kind + r.team].n;
-    const adv = r.R - b;
-    for (const k in r.G) grad[k] = (grad[k] ?? 0) + adv * r.G[k];
+    N += r.n;
+    for (const k in r.grad) grad[k] = (grad[k] ?? 0) + r.grad[k];
+    for (const k in r.means) (meanRs[k] ??= []).push(r.means[k]);
   }
-  const N = rs.length;
+  const meanR = Object.fromEntries(Object.entries(meanRs).map(([k, a]) => [k, +(a.reduce((x, y) => x + y, 0) / a.length).toFixed(3)]));
   t++;
   const keys = new Set([...Object.keys(grad), ...Object.keys(theta)]);
   let gnorm = 0;
@@ -83,10 +83,9 @@ for (let it = 1; it <= ITERS; it++) {
     gnorm += g * g;
     m[k] = 0.9 * (m[k] ?? 0) + 0.1 * g;
     v[k] = 0.999 * (v[k] ?? 0) + 0.001 * g * g;
-    const step = LR * (m[k] / (1 - 0.9 ** t)) / (Math.sqrt(v[k] / (1 - 0.999 ** t)) + 1e-8);
+    const step = LR * (k.startsWith('N:') ? NETLR : 1) * (m[k] / (1 - 0.9 ** t)) / (Math.sqrt(v[k] / (1 - 0.999 ** t)) + 1e-8);
     theta[k] = Math.max(-15, Math.min(15, (theta[k] ?? 0) + step));
   }
-  const meanR = Object.fromEntries(Object.entries(sums).map(([k, x]) => [k, +(x.s / x.n).toFixed(3)]));
   console.log(`iter ${it} records=${N} |g|=${Math.sqrt(gnorm).toFixed(4)} params=${Object.keys(theta).length} meanR=${JSON.stringify(meanR)}`);
 
   if (it % EVAL_EVERY === 0 || it === ITERS) {

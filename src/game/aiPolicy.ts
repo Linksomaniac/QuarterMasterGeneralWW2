@@ -26,6 +26,18 @@ export interface PlayContext {
   availArmies: number;
   availNavies: number;
   deckSize: number;
+  /** supply spaces held solely by own team / solely by enemy / contested */
+  supplyMine?: number;
+  supplyTheirs?: number;
+  supplyContested?: number;
+  /** status + response cards the country holds */
+  nStatus?: number;
+  nResponse?: number;
+  /** smallest enemy draw-deck (Economic Warfare relevance) */
+  enemyMinDeck?: number;
+  /** enemy armies adjacent to own pieces / own armies adjacent to enemy ones */
+  threatened?: number;
+  pressing?: number;
 }
 
 const ALL_TYPES = Object.values(CardType) as CardType[];
@@ -49,6 +61,17 @@ export function playFeatures(card: Card, hand: Card[], ctx: PlayContext, base: n
   f['ta:' + t] = ctx.availArmies / 10;
   f['tn:' + t] = ctx.availNavies / 10;
   if (ctx.deckSize < 8) f['td:' + t] = 1;
+  if (ctx.supplyMine !== undefined) {
+    f['sm:' + t] = ctx.supplyMine / 6;
+    f['st:' + t] = (ctx.supplyTheirs ?? 0) / 6;
+    f['sc:' + t] = (ctx.supplyContested ?? 0) / 6;
+    f['ns:' + t] = Math.min(ctx.nStatus ?? 0, 4) / 4;
+    f['nr:' + t] = Math.min(ctx.nResponse ?? 0, 4) / 4;
+    f['th2:' + t] = Math.min(ctx.threatened ?? 0, 6) / 6;
+    f['pr:' + t] = Math.min(ctx.pressing ?? 0, 6) / 6;
+    if ((ctx.enemyMinDeck ?? 99) < 10) f['emd:' + t] = 1;
+    f[`sm:${t}:${roundBucket(ctx.round)}`] = ctx.supplyMine / 6;
+  }
   for (const o of ALL_TYPES) {
     const n = others.filter((c) => c.type === o).length;
     if (n > 0) f[`th:${t}:${o}`] = Math.min(n, 3) / 3;
@@ -56,6 +79,7 @@ export function playFeatures(card: Card, hand: Card[], ctx: PlayContext, base: n
   if (others.some((c) => c.type === CardType.BUILD_ARMY || c.type === CardType.BUILD_NAVY)) f['ib:' + card.id] = 1;
   if (others.some((c) => c.type === CardType.LAND_BATTLE || c.type === CardType.SEA_BATTLE)) f['il:' + card.id] = 1;
   if (others.some((c) => c.name === card.name)) f['dup:' + t] = 1;
+  for (const o of others) f['ho:' + o.id] = 1 / 3;
   return f;
 }
 
@@ -100,19 +124,94 @@ function weightsFor(country: Country): Weights {
   return overrides[country] ?? defaultWeights;
 }
 
-function dot(w: Weights, f: Feats): number {
+// A decision's logit = linear part (keys without "N:" prefix) + a small
+// one-hidden-layer network per decision kind (keys "N:<kind>:...").
+//   hidden_j = tanh(b1_j + sum_k f_k * W1[k][j]);  out = b2 + sum_j w2_j * hidden_j
+export const NET_HIDDEN = 16;
+interface Net { W1: Map<string, Float64Array>; b1: Float64Array; w2: Float64Array; b2: number }
+interface Compiled { lin: Weights; nets: Map<string, Net> }
+const compiledCache = new WeakMap<Weights, Compiled>();
+
+function compile(w: Weights): Compiled {
+  let c = compiledCache.get(w);
+  if (c) return c;
+  c = { lin: {}, nets: new Map() };
+  for (const key in w) {
+    if (!key.startsWith('N:')) { c.lin[key] = w[key]; continue; }
+    const rest = key.slice(2);
+    const kind = rest.slice(0, rest.indexOf(':'));
+    let net = c.nets.get(kind);
+    if (!net) {
+      net = { W1: new Map(), b1: new Float64Array(NET_HIDDEN), w2: new Float64Array(NET_HIDDEN), b2: 0 };
+      c.nets.set(kind, net);
+    }
+    const tail = rest.slice(kind.length + 1);
+    if (tail === 'b2') net.b2 = w[key];
+    else if (tail.startsWith('b1:')) net.b1[+tail.slice(3)] = w[key];
+    else if (tail.startsWith('w2:')) net.w2[+tail.slice(3)] = w[key];
+    else if (tail.startsWith('W1:')) {
+      const body = tail.slice(3);
+      const cut = body.lastIndexOf(':');
+      const fk = body.slice(0, cut), jj = +body.slice(cut + 1);
+      let row = net.W1.get(fk);
+      if (!row) { row = new Float64Array(NET_HIDDEN); net.W1.set(fk, row); }
+      row[jj] = w[key];
+    }
+  }
+  compiledCache.set(w, c);
+  return c;
+}
+
+function hiddenOf(net: Net, f: Feats): Float64Array {
+  const a = Float64Array.from(net.b1);
+  for (const k in f) {
+    const row = net.W1.get(k);
+    if (row) for (let j = 0; j < NET_HIDDEN; j++) a[j] += f[k] * row[j];
+  }
+  for (let j = 0; j < NET_HIDDEN; j++) a[j] = Math.tanh(a[j]);
+  return a;
+}
+
+export function scoreLogit(w: Weights, kind: string, f: Feats): number {
+  const c = compile(w);
   let s = 0;
   for (const k in f) {
-    const v = w[k];
+    const v = c.lin[k];
     if (v !== undefined) s += v * f[k];
   }
+  const net = c.nets.get(kind);
+  if (net) {
+    const h = hiddenOf(net, f);
+    s += net.b2;
+    for (let j = 0; j < NET_HIDDEN; j++) s += net.w2[j] * h[j];
+  }
   return s;
+}
+
+/** acc += scale * d logit / d weights (training). */
+export function logitGrad(w: Weights, kind: string, f: Feats, scale: number, acc: Record<string, number>) {
+  for (const k in f) acc[k] = (acc[k] ?? 0) + scale * f[k];
+  const net = compile(w).nets.get(kind);
+  if (!net) return;
+  const h = hiddenOf(net, f);
+  const pre = `N:${kind}:`;
+  acc[pre + 'b2'] = (acc[pre + 'b2'] ?? 0) + scale;
+  for (let j = 0; j < NET_HIDDEN; j++) {
+    const dj = scale * net.w2[j] * (1 - h[j] * h[j]);
+    acc[`${pre}w2:${j}`] = (acc[`${pre}w2:${j}`] ?? 0) + scale * h[j];
+    acc[`${pre}b1:${j}`] = (acc[`${pre}b1:${j}`] ?? 0) + dj;
+    for (const k in f) {
+      const key = `${pre}W1:${k}:${j}`;
+      acc[key] = (acc[key] ?? 0) + dj * f[k];
+    }
+  }
 }
 
 // ---- Training trace -------------------------------------------------------
 
 export interface TraceStep {
   country: Country;
+  kind: string;
   cands: Feats[];
   chosen: number;
   probs: number[];
@@ -144,10 +243,10 @@ function softmaxSample(logits: number[], tau: number): { pick: number; probs: nu
 export function choosePlay(hand: Card[], bases: number[], ctx: PlayContext): number {
   const w = weightsFor(ctx.country);
   const cands = hand.map((c, i) => playFeatures(c, hand, ctx, bases[i]));
-  const logits = cands.map((f, i) => bases[i] + dot(w, f));
+  const logits = cands.map((f, i) => bases[i] + scoreLogit(w, 'play', f));
   if (sampling && isSampling(ctx.country)) {
     const { pick, probs } = softmaxSample(logits, sampling.tau);
-    trace.push({ country: ctx.country, cands, chosen: pick, probs, tau: sampling.tau });
+    trace.push({ country: ctx.country, kind: 'play', cands, chosen: pick, probs, tau: sampling.tau });
     return pick;
   }
   let best = 0, bestV = -Infinity;
@@ -172,12 +271,12 @@ export function chooseSetupDiscards(country: Country, hand: Card[], n: number): 
       for (const key in k) neg[key] = -k[key];
       return neg;
     });
-    const logits = remaining.map((i, j) => -keepBase(hand[i], hand) + dot(w, cands[j]));
+    const logits = remaining.map((i, j) => -keepBase(hand[i], hand) + scoreLogit(w, 'keep', cands[j]));
     let pick: number;
     if (sampling && isSampling(country)) {
       const r = softmaxSample(logits, sampling.tau);
       pick = r.pick;
-      trace.push({ country, cands, chosen: pick, probs: r.probs, tau: sampling.tau });
+      trace.push({ country, kind: 'keep', cands, chosen: pick, probs: r.probs, tau: sampling.tau });
     } else {
       pick = logits.indexOf(Math.max(...logits));
     }
@@ -232,11 +331,47 @@ export function spaceFeatures(kind: 'build' | 'battle', o: SpaceOption, c: Space
 export function chooseSpace(kind: 'build' | 'battle', opts: SpaceOption[], c: SpaceContext): number {
   const w = weightsFor(c.country);
   const cands = opts.map((o) => spaceFeatures(kind, o, c));
-  const logits = cands.map((f, i) => opts[i].base + dot(w, f));
+  const logits = cands.map((f, i) => opts[i].base + scoreLogit(w, kind, f));
   if (sampling && isSampling(c.country)) {
     const { pick, probs } = softmaxSample(logits, sampling.tau);
-    trace.push({ country: c.country, cands, chosen: pick, probs, tau: sampling.tau });
+    trace.push({ country: c.country, kind, cands, chosen: pick, probs, tau: sampling.tau });
     return pick;
   }
   return logits.indexOf(Math.max(...logits));
+}
+
+// ---- Mid-game discards -----------------------------------------------------
+
+export interface DiscardContext { country: Country; round: number; deckSize: number; vpGap: number }
+
+/**
+ * Decide, per hand card, whether to discard it. `bases[i]` is a heuristic
+ * prior (positive = lean discard). Each card is an independent keep/discard
+ * choice (a two-way softmax), so the same trace/gradient machinery applies.
+ */
+export function chooseDiscardFlags(hand: Card[], bases: number[], ctx: DiscardContext): boolean[] {
+  const w = weightsFor(ctx.country);
+  return hand.map((card, i) => {
+    const others = hand.filter((c) => c !== card);
+    const f: Feats = {};
+    const t = card.type;
+    f['dsid:' + card.id] = 1;
+    f[`dst:${t}:${roundBucket(ctx.round)}`] = 1;
+    f['dsd:' + t] = Math.min(ctx.deckSize, 30) / 30;
+    f['dsv:' + t] = Math.max(-1, Math.min(1, ctx.vpGap / 30));
+    for (const o of ALL_TYPES) {
+      const n = others.filter((c) => c.type === o).length;
+      if (n > 0) f[`dsh:${t}:${o}`] = Math.min(n, 3) / 3;
+    }
+    for (const o of others) f['dso:' + o.id] = 1 / 3;
+    // candidate 0 = discard, candidate 1 = keep (no features, logit 0)
+    const cands: Feats[] = [f, {}];
+    const logits = [bases[i] + scoreLogit(w, 'discard', f), 0];
+    if (sampling && isSampling(ctx.country)) {
+      const { pick, probs } = softmaxSample(logits, 1);
+      trace.push({ country: ctx.country, kind: 'discard', cands, chosen: pick, probs, tau: 1 });
+      return pick === 0;
+    }
+    return logits[0] > 0;
+  });
 }

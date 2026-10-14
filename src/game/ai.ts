@@ -25,7 +25,7 @@ import {
 } from './engine';
 import { getSpace, HOME_SPACES, SUPPLY_SPACE_IDS, getAdjacentSpaces } from './mapData';
 import { useTotalWarStore } from './totalwar/store';
-import { choosePlay, chooseSpace, SpaceOption } from './aiPolicy';
+import { choosePlay, chooseSpace, chooseDiscardFlags, SpaceOption } from './aiPolicy';
 import type { MinorPowerPiece } from './totalwar/types';
 
 // ---------------------------------------------------------------------------
@@ -1797,6 +1797,40 @@ export function pickBestBattleTarget(
   return bestTarget;
 }
 
+// Board-position summary fed to the learned play policy (aiPolicy.ts).
+function boardSummary(state: GameState, country: Country) {
+  const team = getTeam(country);
+  const pieces = getAllPieces(state);
+  let supplyMine = 0, supplyTheirs = 0, supplyContested = 0;
+  for (const sid of SUPPLY_SPACE_IDS) {
+    const mine = pieces.some((p) => p.spaceId === sid && getTeam(p.country) === team);
+    const theirs = pieces.some((p) => p.spaceId === sid && getTeam(p.country) !== team);
+    if (mine && theirs) supplyContested++;
+    else if (mine) supplyMine++;
+    else if (theirs) supplyTheirs++;
+  }
+  const own = state.countries[country].piecesOnBoard.filter((p) => p.type === 'army');
+  const enemyArmies = pieces.filter((p) => p.type === 'army' && getTeam(p.country) !== team);
+  let threatened = 0, pressing = 0;
+  for (const a of own) {
+    const adj = getAdjacentSpaces(a.spaceId);
+    if (enemyArmies.some((e) => adj.includes(e.spaceId))) threatened++;
+  }
+  for (const e of enemyArmies) {
+    const adj = getAdjacentSpaces(e.spaceId);
+    if (own.some((a) => adj.includes(a.spaceId))) pressing++;
+  }
+  const cs = state.countries[country];
+  const enemyMinDeck = Math.min(
+    ...TURN_ORDER.filter((c) => getTeam(c) !== team).map((c) => state.countries[c].deck.length)
+  );
+  return {
+    supplyMine, supplyTheirs, supplyContested, threatened, pressing, enemyMinDeck,
+    nStatus: cs.statusCards.length,
+    nResponse: cs.responseCards.length,
+  };
+}
+
 export function aiChooseCard(
   state: GameState,
   difficulty: 'easy' | 'medium' | 'hard'
@@ -1824,6 +1858,7 @@ export function aiChooseCard(
       availArmies: avail.armies,
       availNavies: avail.navies,
       deckSize: cs.deck.length,
+      ...boardSummary(state, country),
     });
   }
 
@@ -2007,7 +2042,7 @@ export function aiChooseDiscards(
     discardThreshold = Math.min(baseThreshold, -2);
   }
 
-  const candidates: number[] = [];
+  let candidates: number[] = [];
   for (const s of scored) {
     if (s.score < discardThreshold) {
       candidates.push(s.index);
@@ -2028,6 +2063,26 @@ export function aiChooseDiscards(
         candidates.push(s.index);
       }
     }
+  }
+
+  // Hard AI: per-card keep/discard decision = heuristic prior + learned
+  // correction (aiPolicy.ts). With no learned weights this reproduces the
+  // rule-based candidates above (positive prior <=> rule says discard).
+  if (difficulty === 'hard') {
+    const ruleSet = new Set(candidates);
+    const team = getTeam(country);
+    const bases = hand.map((c, i) => {
+      const sc = scored.find((x) => x.index === i)!.score;
+      const prior = Math.max(-4, Math.min(4, (discardThreshold - sc) / 3));
+      return ruleSet.has(i) ? Math.max(prior, 0.5) : Math.min(prior, -0.5);
+    });
+    const flags = chooseDiscardFlags(hand, bases, {
+      country,
+      round: state.round,
+      deckSize,
+      vpGap: team === Team.AXIS ? state.axisVP - state.alliesVP : state.alliesVP - state.axisVP,
+    });
+    candidates = hand.map((_, i) => i).filter((i) => flags[i]);
   }
 
   // Cap discards by how many extra draws the deck can safely support.

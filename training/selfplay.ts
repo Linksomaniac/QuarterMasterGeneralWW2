@@ -2,7 +2,7 @@ import { vi } from 'vitest';
 import { useGameStore } from '../src/game/store';
 import { Country, GamePhase, Team, getTeam } from '../src/game/types';
 import {
-  Weights, clearPolicyOverrides, setPolicyOverride, setTrainingMode, drainTrace, TraceStep, Feats,
+  Weights, clearPolicyOverrides, setPolicyOverride, setTrainingMode, drainTrace, TraceStep, logitGrad,
 } from '../src/game/aiPolicy';
 
 const ALL = [Country.GERMANY, Country.UK, Country.JAPAN, Country.SOVIET_UNION, Country.ITALY, Country.USA];
@@ -51,18 +51,17 @@ export function reward(r: GameResult, team: Team): number {
   return 0.5 * win + 0.5 * Math.max(-1, Math.min(1, margin / 60));
 }
 
-/** Sum of grad log pi over a team's trace steps, w.r.t. the linear weights. */
-export function teamGrad(trace: TraceStep[], team: Team): Feats {
-  const g: Feats = {};
+/**
+ * Sum of grad log pi over a team's trace steps, w.r.t. all weights (linear +
+ * network). `w` must be the weights the team played with.
+ */
+export function teamGrad(trace: TraceStep[], team: Team, w: Weights): Record<string, number> {
+  const g: Record<string, number> = {};
   for (const st of trace) {
     if (getTeam(st.country) !== team) continue;
-    const mean: Feats = {};
-    st.cands.forEach((f, j) => {
-      for (const k in f) mean[k] = (mean[k] ?? 0) + st.probs[j] * f[k];
-    });
-    const fc = st.cands[st.chosen];
-    for (const k in fc) g[k] = (g[k] ?? 0) + fc[k] / st.tau;
-    for (const k in mean) g[k] = (g[k] ?? 0) - mean[k] / st.tau;
+    // grad log pi_c = (dz_c - sum_j p_j dz_j) / tau
+    logitGrad(w, st.kind, st.cands[st.chosen], 1 / st.tau, g);
+    st.cands.forEach((f, j) => logitGrad(w, st.kind, f, -st.probs[j] / st.tau, g));
   }
   return g;
 }
