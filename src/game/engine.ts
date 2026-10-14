@@ -521,6 +521,16 @@ export function getValidBattleTargets(
       (e.type === 'LAND_BATTLE' && battleType === 'land' && c.type === CardType.RESPONSE)
     )
   );
+  // Fall of Singapore triggers on a land battle in Southeast Asia, so that
+  // space is a legal (empty) target while the card is held.
+  const hasFallOfSingapore =
+    battleType === 'land' && cs.responseCards.some((c) => c.id === 'jpn_fall_of_singapore');
+  if (hasFallOfSingapore && !valid.has('southeast_asia')) {
+    const adjacentToSEA = getAdjacentSpaces('southeast_asia').some((a) => pieceSpaceIds.has(a));
+    const friendlyInSEA = countryPieces.some((p) => p.spaceId === 'southeast_asia' && p.type === 'army');
+    if (adjacentToSEA && !friendlyInSEA) valid.add('southeast_asia');
+  }
+
   if (hasResponseOnBattle) {
     for (const spaceId of pieceSpaceIds) {
       for (const adj of getAdjacentSpaces(spaceId)) {
