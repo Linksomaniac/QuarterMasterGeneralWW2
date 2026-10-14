@@ -11,7 +11,7 @@
 //   - "play": which card of the hand to play this turn
 //   - "keep": which 3 of the 10 opening cards to discard at setup
 // ---------------------------------------------------------------------------
-import { Card, CardType, Country } from './types';
+import { Card, CardType, Country, Team, getTeam } from './types';
 import shipped from './aiWeights.json';
 
 export type Feats = Record<string, number>;
@@ -108,10 +108,16 @@ function keepBase(card: Card, hand: Card[]): number {
 
 // ---- Weights registry -----------------------------------------------------
 
-let defaultWeights: Weights = shipped as Weights;
+/** Shipped weights: one set for everyone, or a pair {axis, allies} of per-side sets. */
+export type WeightSet = Weights | { axis: Weights; allies: Weights };
+function isPair(w: WeightSet): w is { axis: Weights; allies: Weights } {
+  const p = w as { axis?: unknown; allies?: unknown };
+  return typeof p.axis === 'object' && typeof p.allies === 'object';
+}
+let defaultWeights: WeightSet = shipped as WeightSet;
 const overrides: Partial<Record<Country, Weights>> = {};
 
-export function setDefaultWeights(w: Weights) { defaultWeights = w; }
+export function setDefaultWeights(w: WeightSet) { defaultWeights = w; }
 /** Used by training/eval: pin a country to a specific weight set ({} = pure heuristic). */
 export function setPolicyOverride(country: Country, w: Weights | null) {
   if (w === null) delete overrides[country];
@@ -121,13 +127,17 @@ export function clearPolicyOverrides() {
   for (const k of Object.keys(overrides)) delete overrides[k as Country];
 }
 function weightsFor(country: Country): Weights {
-  return overrides[country] ?? defaultWeights;
+  const o = overrides[country];
+  if (o) return o;
+  return isPair(defaultWeights) ? (getTeam(country) === Team.AXIS ? defaultWeights.axis : defaultWeights.allies) : defaultWeights;
 }
 
 // A decision's logit = linear part (keys without "N:" prefix) + a small
 // one-hidden-layer network per decision kind (keys "N:<kind>:...").
 //   hidden_j = tanh(b1_j + sum_k f_k * W1[k][j]);  out = b2 + sum_j w2_j * hidden_j
 export const NET_HIDDEN = 16;
+/** Each side gets its own network: 'play' -> 'playX' (Axis) / 'playY' (Allies). */
+const tk = (kind: string, c: Country) => kind + (getTeam(c) === Team.AXIS ? 'X' : 'Y');
 interface Net { W1: Map<string, Float64Array>; b1: Float64Array; w2: Float64Array; b2: number }
 interface Compiled { lin: Weights; nets: Map<string, Net> }
 const compiledCache = new WeakMap<Weights, Compiled>();
@@ -243,10 +253,10 @@ function softmaxSample(logits: number[], tau: number): { pick: number; probs: nu
 export function choosePlay(hand: Card[], bases: number[], ctx: PlayContext): number {
   const w = weightsFor(ctx.country);
   const cands = hand.map((c, i) => playFeatures(c, hand, ctx, bases[i]));
-  const logits = cands.map((f, i) => bases[i] + scoreLogit(w, 'play', f));
+  const logits = cands.map((f, i) => bases[i] + scoreLogit(w, tk('play', ctx.country), f));
   if (sampling && isSampling(ctx.country)) {
     const { pick, probs } = softmaxSample(logits, sampling.tau);
-    trace.push({ country: ctx.country, kind: 'play', cands, chosen: pick, probs, tau: sampling.tau });
+    trace.push({ country: ctx.country, kind: tk('play', ctx.country), cands, chosen: pick, probs, tau: sampling.tau });
     return pick;
   }
   let best = 0, bestV = -Infinity;
@@ -271,12 +281,12 @@ export function chooseSetupDiscards(country: Country, hand: Card[], n: number): 
       for (const key in k) neg[key] = -k[key];
       return neg;
     });
-    const logits = remaining.map((i, j) => -keepBase(hand[i], hand) + scoreLogit(w, 'keep', cands[j]));
+    const logits = remaining.map((i, j) => -keepBase(hand[i], hand) + scoreLogit(w, tk('keep', country), cands[j]));
     let pick: number;
     if (sampling && isSampling(country)) {
       const r = softmaxSample(logits, sampling.tau);
       pick = r.pick;
-      trace.push({ country, kind: 'keep', cands, chosen: pick, probs: r.probs, tau: sampling.tau });
+      trace.push({ country, kind: tk('keep', country), cands, chosen: pick, probs: r.probs, tau: sampling.tau });
     } else {
       pick = logits.indexOf(Math.max(...logits));
     }
@@ -331,10 +341,10 @@ export function spaceFeatures(kind: 'build' | 'battle', o: SpaceOption, c: Space
 export function chooseSpace(kind: 'build' | 'battle', opts: SpaceOption[], c: SpaceContext): number {
   const w = weightsFor(c.country);
   const cands = opts.map((o) => spaceFeatures(kind, o, c));
-  const logits = cands.map((f, i) => opts[i].base + scoreLogit(w, kind, f));
+  const logits = cands.map((f, i) => opts[i].base + scoreLogit(w, tk(kind, c.country), f));
   if (sampling && isSampling(c.country)) {
     const { pick, probs } = softmaxSample(logits, sampling.tau);
-    trace.push({ country: c.country, kind, cands, chosen: pick, probs, tau: sampling.tau });
+    trace.push({ country: c.country, kind: tk(kind, c.country), cands, chosen: pick, probs, tau: sampling.tau });
     return pick;
   }
   return logits.indexOf(Math.max(...logits));
@@ -366,10 +376,10 @@ export function chooseDiscardFlags(hand: Card[], bases: number[], ctx: DiscardCo
     for (const o of others) f['dso:' + o.id] = 1 / 3;
     // candidate 0 = discard, candidate 1 = keep (no features, logit 0)
     const cands: Feats[] = [f, {}];
-    const logits = [bases[i] + scoreLogit(w, 'discard', f), 0];
+    const logits = [bases[i] + scoreLogit(w, tk('discard', ctx.country), f), 0];
     if (sampling && isSampling(ctx.country)) {
       const { pick, probs } = softmaxSample(logits, 1);
-      trace.push({ country: ctx.country, kind: 'discard', cands, chosen: pick, probs, tau: 1 });
+      trace.push({ country: ctx.country, kind: tk('discard', ctx.country), cands, chosen: pick, probs, tau: 1 });
       return pick === 0;
     }
     return logits[0] > 0;

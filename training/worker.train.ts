@@ -14,25 +14,40 @@ it('selfplay worker', async () => {
   const realLog = console.log;
   console.log = () => {};
 
+  const pick = <T,>(xs: T[]): T => (Math.random() < 0.6 ? xs[xs.length - 1] : xs[Math.floor(Math.random() * xs.length)]);
+  if (job.mode === 'match') {
+    // Explicit axis/allies weights; no sampling. Returns Axis win count.
+    let n = 0, axisWins = 0;
+    for (let i = 0; i < job.games; i++) {
+      const res = await playGame({ axis: job.axis, allies: job.allies, learn: [], tau: 1 });
+      if (!res) continue;
+      n++;
+      if (res.winner === Team.AXIS) axisWins++;
+    }
+    writeFileSync(job.out, JSON.stringify({ n, axisWins }));
+    console.log = realLog;
+    return;
+  }
+
   if (job.mode === 'train') {
-    // Per game: {kind, team, R, G}. Gradients are combined locally (with a
-    // local per-(kind,team) reward baseline) so workers return one small dict.
+    // League: 1/3 self-play, 1/3 learner as Axis vs an Allies champion,
+    // 1/3 learner as Allies vs an Axis champion (opponents drawn from the pools).
     const records: { kind: string; team: string; R: number; G: Record<string, number> }[] = [];
     for (let i = 0; i < job.games; i++) {
-      const selfPlay = i % 2 === 0;
-      const learnerSide = Math.random() < 0.5 ? Team.AXIS : Team.ALLIES;
-      const res = selfPlay
+      const mode = i % 3;
+      const learnerSide = mode === 1 ? Team.AXIS : Team.ALLIES;
+      const res = mode === 0
         ? await playGame({ axis: theta, allies: theta, learn: [Team.AXIS, Team.ALLIES], tau: job.tau })
         : await playGame({
-            axis: learnerSide === Team.AXIS ? theta : base,
-            allies: learnerSide === Team.ALLIES ? theta : base,
+            axis: learnerSide === Team.AXIS ? theta : pick<Record<string, number>>(job.poolAxis),
+            allies: learnerSide === Team.ALLIES ? theta : pick<Record<string, number>>(job.poolAllies),
             learn: [learnerSide],
             tau: job.tau,
           });
       if (!res) continue;
-      const teams = selfPlay ? [Team.AXIS, Team.ALLIES] : [learnerSide];
+      const teams = mode === 0 ? [Team.AXIS, Team.ALLIES] : [learnerSide];
       for (const t of teams) {
-        records.push({ kind: selfPlay ? 'self' : 'base', team: t, R: reward(res, t), G: teamGrad(res.trace, t, theta) });
+        records.push({ kind: mode === 0 ? 'self' : 'lg', team: t, R: reward(res, t), G: teamGrad(res.trace, t, theta) });
       }
     }
     const sums: Record<string, { s: number; n: number }> = {};

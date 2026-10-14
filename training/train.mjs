@@ -4,11 +4,13 @@
 //                           [--tau 3] [--l2 0.002] [--eval-every 25] [--eval-games 1000]
 //                           [--init path.json] [--out training/out]
 //
-// Each iteration: workers play self-play games (all six powers use the
-// current weights and sample from a softmax) and games against the plain
-// heuristic AI; the policy gradient is averaged and applied with Adam.
-// Periodically the deployment policy (argmax) is evaluated head-to-head
-// against the plain heuristic AI with sides alternated.
+// League training. Each iteration: workers play (1/3) self-play, (1/3) the
+// learner as Axis against the strongest Allies champions, (1/3) the learner as
+// Allies against the strongest Axis champions. The policy gradient is applied
+// with Adam. Every --eval-every iterations the learner's Axis and Allies sides
+// are each tested against their current champion (same opposing champion);
+// a side that wins clearly (z>2) becomes the new champion for that side and
+// joins the opponent pool. `final-pair.json` always holds {axis, allies}.
 import { spawn } from 'node:child_process';
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 
@@ -22,6 +24,10 @@ const PROMOTE = +arg('promote', 0.55);
 // Moving opponent ("champion") for the non-self-play half of training games, plus a fixed reference.
 let champion = arg('baseline') ? JSON.parse(readFileSync(arg('baseline'), 'utf8')) : {};
 const ref = arg('ref') ? JSON.parse(readFileSync(arg('ref'), 'utf8')) : champion;
+const POOL_MAX = 5;
+const poolAxis = [champion], poolAllies = [champion];
+const champA = () => poolAxis[poolAxis.length - 1];
+const champL = () => poolAllies[poolAllies.length - 1];
 mkdirSync(OUT, { recursive: true });
 
 let theta = arg('init') ? JSON.parse(readFileSync(arg('init'), 'utf8')) : {};
@@ -54,6 +60,23 @@ async function evaluate(w, games, opp = champion) {
   return { n, winRate: p, se, avgMargin: ms / n };
 }
 
+async function match(axis, allies, games) {
+  const per = Math.ceil(games / WORKERS);
+  const rs = await Promise.all(Array.from({ length: WORKERS }, (_, i) =>
+    runWorker({ mode: 'match', axis, allies, games: per }, `match${i}`)));
+  const n = rs.reduce((a, r) => a + r.n, 0), w = rs.reduce((a, r) => a + r.axisWins, 0);
+  const p = w / n;
+  return { p, se: Math.sqrt(p * (1 - p) / n), n };
+}
+const zScore = (a, b) => (a.p - b.p) / Math.sqrt(a.se ** 2 + b.se ** 2);
+
+async function sides(w, games) {
+  const per = Math.ceil(games / WORKERS);
+  const rs = await Promise.all(Array.from({ length: WORKERS }, (_, i) =>
+    runWorker({ mode: 'sides', theta: w, baseline: {}, games: per }, `sides${i}`)));
+  const t = rs.reduce((a, r) => ({ n: a.n + r.n, axis: a.axis + r.axis }), { n: 0, axis: 0 });
+  return `Axis ${(100 * t.axis / t.n).toFixed(1)}% / Allies ${(100 - 100 * t.axis / t.n).toFixed(1)}% (n=${t.n})`;
+}
 const fmt = (e) => `win ${(100 * e.winRate).toFixed(1)}% ±${(196 * e.se).toFixed(1)} margin ${e.avgMargin.toFixed(1)} (n=${e.n})`;
 
 if (process.argv.includes('--eval-only')) {
@@ -64,7 +87,7 @@ console.log('champion mirror check:', fmt(await evaluate(champion, EVAL_GAMES)))
 
 for (let it = 1; it <= ITERS; it++) {
   const rs = await Promise.all(Array.from({ length: WORKERS }, (_, i) =>
-    runWorker({ mode: 'train', theta, baseline: champion, games: GAMES, tau: TAU }, `train${i}`)));
+    runWorker({ mode: 'train', theta, poolAxis, poolAllies, games: GAMES, tau: TAU }, `train${i}`)));
   // Workers return advantage-weighted gradient sums (local reward baselines).
   const grad = {};
   let N = 0;
@@ -91,14 +114,21 @@ for (let it = 1; it <= ITERS; it++) {
   if (it % EVAL_EVERY === 0 || it === ITERS) {
     writeFileSync(`${OUT}/weights-${it}.json`, JSON.stringify(theta));
     writeFileSync(`${OUT}/weights-latest.json`, JSON.stringify(theta));
-    const vsChamp = await evaluate(theta, EVAL_GAMES, champion);
-    console.log(`  eval @${it}: vs champion ${fmt(vsChamp)}`);
-    console.log(`  eval @${it}: vs reference ${fmt(await evaluate(theta, EVAL_GAMES, ref))}`);
-    console.log(`  eval @${it}: vs heuristic ${fmt(await evaluate(theta, EVAL_GAMES, {}))}`);
-    if (vsChamp.winRate - 1.96 * vsChamp.se > 0.5 && vsChamp.winRate >= PROMOTE) {
-      champion = JSON.parse(JSON.stringify(theta));
-      writeFileSync(`${OUT}/champion.json`, JSON.stringify(champion));
-      console.log(`  promoted new champion @${it}`);
-    }
+    const G = EVAL_GAMES;
+    const base = await match(champA(), champL(), G);          // current champions
+    const newAx = await match(theta, champL(), G);            // learner as Axis
+    const newAl = await match(champA(), theta, G);            // learner as Allies
+    const zAx = zScore(newAx, base);
+    const zAl = zScore({ p: 1 - newAl.p, se: newAl.se }, { p: 1 - base.p, se: base.se });
+    const pc = (x) => (100 * x).toFixed(1);
+    console.log(`  eval @${it}: league Axis: champion ${pc(base.p)}% -> learner ${pc(newAx.p)}% (z=${zAx.toFixed(1)}) | Allies: champion ${pc(1 - base.p)}% -> learner ${pc(1 - newAl.p)}% (z=${zAl.toFixed(1)})`);
+    console.log(`  eval @${it}: vs reference ${fmt(await evaluate(theta, G, ref))}`);
+    console.log(`  eval @${it}: side balance (self-play) ${await sides(theta, G)}`);
+    console.log(`  eval @${it}: vs heuristic ${fmt(await evaluate(theta, G, {}))}`);
+    let promoted = [];
+    if (zAx > 2 && newAx.p - base.p > 0.02) { poolAxis.push(JSON.parse(JSON.stringify(theta))); if (poolAxis.length > POOL_MAX) poolAxis.splice(0, 1); promoted.push('Axis'); }
+    if (zAl > 2 && (1 - newAl.p) - (1 - base.p) > 0.02) { poolAllies.push(JSON.parse(JSON.stringify(theta))); if (poolAllies.length > POOL_MAX) poolAllies.splice(0, 1); promoted.push('Allies'); }
+    if (promoted.length) console.log(`  promoted new champion @${it}: ${promoted.join(' + ')}`);
+    writeFileSync(`${OUT}/final-pair.json`, JSON.stringify({ axis: champA(), allies: champL() }));
   }
 }
