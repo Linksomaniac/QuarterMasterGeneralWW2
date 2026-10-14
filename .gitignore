@@ -6,3 +6,5 @@ dist/
 .env.*
 training/out/
 training/out.log
+training/out2/
+training/*.log

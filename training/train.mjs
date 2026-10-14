@@ -17,6 +17,10 @@ const ITERS = +arg('iters', 300), GAMES = +arg('games', 100), WORKERS = +arg('wo
 const LR = +arg('lr', 0.08), TAU = +arg('tau', 3), L2 = +arg('l2', 0.002);
 const EVAL_EVERY = +arg('eval-every', 25), EVAL_GAMES = +arg('eval-games', 1000);
 const OUT = arg('out', 'training/out');
+const PROMOTE = +arg('promote', 0.55);
+// Moving opponent ("champion") for the non-self-play half of training games, plus a fixed reference.
+let champion = arg('baseline') ? JSON.parse(readFileSync(arg('baseline'), 'utf8')) : {};
+const ref = arg('ref') ? JSON.parse(readFileSync(arg('ref'), 'utf8')) : champion;
 mkdirSync(OUT, { recursive: true });
 
 let theta = arg('init') ? JSON.parse(readFileSync(arg('init'), 'utf8')) : {};
@@ -39,10 +43,10 @@ function runWorker(job, tag) {
   });
 }
 
-async function evaluate(w, games) {
+async function evaluate(w, games, opp = champion) {
   const per = Math.ceil(games / WORKERS);
   const rs = await Promise.all(Array.from({ length: WORKERS }, (_, i) =>
-    runWorker({ mode: 'eval', theta: w, baseline: {}, games: per }, `eval${i}`)));
+    runWorker({ mode: 'eval', theta: w, baseline: opp, games: per }, `eval${i}`)));
   let n = 0, wins = 0, ms = 0;
   for (const r of rs) { n += r.n; wins += r.wins; ms += r.marginSum; }
   const p = wins / n, se = Math.sqrt(p * (1 - p) / n);
@@ -55,11 +59,11 @@ if (process.argv.includes('--eval-only')) {
   console.log('eval-only:', fmt(await evaluate(theta, EVAL_GAMES)));
   process.exit(0);
 }
-console.log('baseline mirror check:', fmt(await evaluate({}, EVAL_GAMES)));
+console.log('champion mirror check:', fmt(await evaluate(champion, EVAL_GAMES)));
 
 for (let it = 1; it <= ITERS; it++) {
   const rs = (await Promise.all(Array.from({ length: WORKERS }, (_, i) =>
-    runWorker({ mode: 'train', theta, baseline: {}, games: GAMES, tau: TAU }, `train${i}`)))).flat();
+    runWorker({ mode: 'train', theta, baseline: champion, games: GAMES, tau: TAU }, `train${i}`)))).flat();
 
   // Baselines: mean reward per (kind, team).
   const sums = {};
@@ -88,6 +92,14 @@ for (let it = 1; it <= ITERS; it++) {
   if (it % EVAL_EVERY === 0 || it === ITERS) {
     writeFileSync(`${OUT}/weights-${it}.json`, JSON.stringify(theta));
     writeFileSync(`${OUT}/weights-latest.json`, JSON.stringify(theta));
-    console.log(`  eval @${it}: ${fmt(await evaluate(theta, EVAL_GAMES))}`);
+    const vsChamp = await evaluate(theta, EVAL_GAMES, champion);
+    console.log(`  eval @${it}: vs champion ${fmt(vsChamp)}`);
+    console.log(`  eval @${it}: vs reference ${fmt(await evaluate(theta, EVAL_GAMES, ref))}`);
+    console.log(`  eval @${it}: vs heuristic ${fmt(await evaluate(theta, EVAL_GAMES, {}))}`);
+    if (vsChamp.winRate - 1.96 * vsChamp.se > 0.5 && vsChamp.winRate >= PROMOTE) {
+      champion = JSON.parse(JSON.stringify(theta));
+      writeFileSync(`${OUT}/champion.json`, JSON.stringify(champion));
+      console.log(`  promoted new champion @${it}`);
+    }
   }
 }

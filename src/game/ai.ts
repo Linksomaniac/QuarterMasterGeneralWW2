@@ -25,7 +25,7 @@ import {
 } from './engine';
 import { getSpace, HOME_SPACES, SUPPLY_SPACE_IDS, getAdjacentSpaces } from './mapData';
 import { useTotalWarStore } from './totalwar/store';
-import { choosePlay } from './aiPolicy';
+import { choosePlay, chooseSpace, SpaceOption } from './aiPolicy';
 import type { MinorPowerPiece } from './totalwar/types';
 
 // ---------------------------------------------------------------------------
@@ -1419,6 +1419,34 @@ export function aiBestPieceToEliminate(pieces: Piece[], state: GameState): Piece
   return bestPiece;
 }
 
+// ---------------------------------------------------------------------------
+// Inputs for the learned space-choice policy (aiPolicy.ts)
+// ---------------------------------------------------------------------------
+function spaceCtx(state: GameState, country: Country) {
+  const team = getTeam(country);
+  return {
+    country,
+    round: state.round,
+    vpGap: team === Team.AXIS ? state.axisVP - state.alliesVP : state.alliesVP - state.axisVP,
+  };
+}
+
+function makeSpaceOption(spaceId: string, base: number, state: GameState, country: Country): SpaceOption {
+  const team = getTeam(country);
+  const all = getAllPiecesWithMinorPowers(state);
+  const adj = getAdjacentSpaces(spaceId);
+  const sp = getSpace(spaceId);
+  return {
+    id: spaceId,
+    base,
+    isSupply: !!sp?.isSupplySpace,
+    isSea: sp?.type === SpaceType.SEA,
+    enemyAdj: all.filter((p) => adj.includes(p.spaceId) && getTeam(p.country) !== team).length,
+    friendAdj: all.filter((p) => adj.includes(p.spaceId) && getTeam(p.country) === team).length,
+    enemyHere: all.filter((p) => p.spaceId === spaceId && getTeam(p.country) !== team).length,
+  };
+}
+
 export function pickBestBuildLocation(
   validSpaces: string[],
   country: Country,
@@ -1456,6 +1484,7 @@ export function pickBestBuildLocation(
   const effectiveSupply = getEffectiveSupplySpaces(country, state);
   let bestSpace = spaces[0];
   let bestScore = -Infinity;
+  const options: SpaceOption[] = [];
 
   for (const spaceId of spaces) {
     const sp = getSpace(spaceId);
@@ -1591,6 +1620,10 @@ export function pickBestBuildLocation(
       bestScore = score;
       bestSpace = spaceId;
     }
+    options.push(makeSpaceOption(spaceId, score, state, country));
+  }
+  if (difficulty === 'hard' && options.length > 1) {
+    return options[chooseSpace('build', options, spaceCtx(state, country))].id;
   }
   return bestSpace;
 }
@@ -1612,6 +1645,7 @@ export function pickBestBattleTarget(
   const vpTargets = getVPTargetSpaces(country, state);
   let bestTarget = validTargets[0];
   let bestScore = -Infinity;
+  const options: SpaceOption[] = [];
 
   for (const spaceId of validTargets) {
     let score = scoreSpace(spaceId, country, state, vpTargets);
@@ -1755,6 +1789,10 @@ export function pickBestBattleTarget(
       bestScore = score;
       bestTarget = spaceId;
     }
+    options.push(makeSpaceOption(spaceId, score, state, country));
+  }
+  if (difficulty === 'hard' && options.length > 1) {
+    return options[chooseSpace('battle', options, spaceCtx(state, country))].id;
   }
   return bestTarget;
 }

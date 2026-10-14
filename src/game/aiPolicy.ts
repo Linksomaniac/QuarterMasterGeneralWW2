@@ -190,3 +190,53 @@ export function chooseSetupDiscards(country: Country, hand: Card[], n: number): 
 export function hasLearnedWeights(country: Country): boolean {
   return Object.keys(weightsFor(country)).length > 0;
 }
+
+// ---- Space choices (where to build / which battle to fight) ---------------
+
+export interface SpaceOption {
+  id: string;
+  /** heuristic score from ai.ts */
+  base: number;
+  isSupply: boolean;
+  isSea: boolean;
+  enemyAdj: number;
+  friendAdj: number;
+  enemyHere: number;
+}
+
+export interface SpaceContext {
+  country: Country;
+  round: number;
+  vpGap: number;
+}
+
+export function spaceFeatures(kind: 'build' | 'battle', o: SpaceOption, c: SpaceContext): Feats {
+  const f: Feats = {};
+  const rb = roundBucket(c.round);
+  f['hs:' + kind] = o.base / 10;
+  f[`sp:${kind}:${o.id}`] = 1;
+  f[`spc:${kind}:${c.country}:${o.id}`] = 1;
+  f[`spr:${kind}:${o.id}:${rb}`] = 1;
+  f[`ks:${kind}:${o.isSea ? 'sea' : 'land'}:${rb}`] = 1;
+  f[`ke:${kind}`] = Math.min(o.enemyAdj, 4) / 4;
+  f[`kf:${kind}`] = Math.min(o.friendAdj, 4) / 4;
+  if (o.enemyHere) f[`kh:${kind}`] = Math.min(o.enemyHere, 3) / 3;
+  if (o.isSupply) {
+    f[`ksup:${kind}`] = 1;
+    f[`ksv:${kind}`] = Math.max(-1, Math.min(1, c.vpGap / 30));
+  }
+  return f;
+}
+
+/** Pick one space. Returns the index into `opts`. */
+export function chooseSpace(kind: 'build' | 'battle', opts: SpaceOption[], c: SpaceContext): number {
+  const w = weightsFor(c.country);
+  const cands = opts.map((o) => spaceFeatures(kind, o, c));
+  const logits = cands.map((f, i) => opts[i].base + dot(w, f));
+  if (sampling && isSampling(c.country)) {
+    const { pick, probs } = softmaxSample(logits, sampling.tau);
+    trace.push({ country: c.country, cands, chosen: pick, probs, tau: sampling.tau });
+    return pick;
+  }
+  return logits.indexOf(Math.max(...logits));
+}
