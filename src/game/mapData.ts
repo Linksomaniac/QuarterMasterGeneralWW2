@@ -36,7 +36,7 @@ export const SPACES: MapSpace[] = [
   { id: 'madagascar', name: 'Madagascar', type: SpaceType.LAND, isSupplySpace: false, x: 832, y: 796 },
 
   // ─── MIDDLE EAST / SOUTH ASIA ───
-  { id: 'middle_east', name: 'Middle East', type: SpaceType.LAND, isSupplySpace: false, x: 872, y: 419, controlsStrait: { connects: ['mediterranean', 'indian_ocean'] } },
+  { id: 'middle_east', name: 'Middle East', type: SpaceType.LAND, isSupplySpace: false, x: 872, y: 419, controlsStrait: { connects: ['mediterranean', 'bay_of_bengal'] } },
   { id: 'india', name: 'India', type: SpaceType.LAND, isSupplySpace: true, x: 1141, y: 513 },
   { id: 'szechuan', name: 'Szechuan', type: SpaceType.LAND, isSupplySpace: false, x: 1186, y: 370 },
   { id: 'china', name: 'China', type: SpaceType.LAND, isSupplySpace: true, x: 1331, y: 373 },
