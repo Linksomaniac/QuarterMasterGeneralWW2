@@ -151,6 +151,7 @@ const RAW_ADJACENCIES: [string, string][] = [
   ['scandinavia', 'baltic'],
   ['germany', 'baltic'],
   ['russia', 'baltic'],
+  ['eastern_europe', 'baltic'],
   ['italy', 'mediterranean'],
   ['balkans', 'mediterranean'],
   ['balkans', 'black_sea'],
