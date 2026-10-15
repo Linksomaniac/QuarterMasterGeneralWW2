@@ -99,12 +99,12 @@ Other training tools: `training/init-net.mjs` adds a hidden-layer network to a w
 
 ### Resuming league training
 
-Checkpoints live in `training/out5/` (git-ignored). To continue from iteration 90:
+Checkpoints live in `training/out6/` (git-ignored; v4 = iteration 180). To continue from iteration 180:
 
 ```bash
 node training/train.mjs --iters 500 --games 150 --lr 0.03 --net-lr-mult 0.5 \
   --eval-every 30 --eval-games 1000 \
-  --init training/out5/weights-90.json --baseline training/out5/weights-90.json \
-  --ref training/ref/weights-v2.json --out training/out6
+  --init training/out6/weights-180.json --baseline training/out6/weights-180.json \
+  --ref training/ref/weights-v3.json --out training/out7
 node training/pair-eval.mjs <pair-or-weights.json> 2000   # evaluate; shipped file must be pruned (|w|<0.02) to stay small
 ```
