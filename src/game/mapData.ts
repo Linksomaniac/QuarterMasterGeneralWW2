@@ -78,6 +78,7 @@ const RAW_ADJACENCIES: [string, string][] = [
   ['eastern_us', 'canada'],
   ['canada', 'pacific_northwest'],
   ['western_us', 'pacific_northwest'],
+  ['western_us', 'brazil'],
 
   // Europe
   ['western_europe', 'germany'],
@@ -139,6 +140,7 @@ const RAW_ADJACENCIES: [string, string][] = [
   ['hawaii', 'north_pacific'],
   ['brazil', 'south_atlantic'],
   ['brazil', 'southeast_pacific'],
+  ['brazil', 'east_pacific'],
   ['brazil', 'southern_ocean'],
 
   // Europe
