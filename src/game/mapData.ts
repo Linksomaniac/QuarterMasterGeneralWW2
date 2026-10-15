@@ -9,7 +9,7 @@ export const SPACES: MapSpace[] = [
   { id: 'hawaii', name: 'Hawaii', type: SpaceType.LAND, isSupplySpace: false, x: 1714, y: 439 },
 
   // ─── SOUTH AMERICA ───
-  { id: 'brazil', name: 'Latin America', type: SpaceType.LAND, isSupplySpace: false, x: 259, y: 645, controlsStrait: { connects: ['south_atlantic', 'southeast_pacific'] } },
+  { id: 'brazil', name: 'Latin America', type: SpaceType.LAND, isSupplySpace: false, x: 259, y: 645, controlsStrait: { connects: ['north_atlantic', 'southeast_pacific'] } },
 
   // ─── EUROPE ───
   { id: 'iceland', name: 'Iceland', type: SpaceType.LAND, isSupplySpace: false, x: 432, y: 39 },
